@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/syncthing/syncthing/internal/db"
+	"github.com/syncthing/syncthing/lib/ignore"
 	"github.com/syncthing/syncthing/lib/model"
 	"github.com/syncthing/syncthing/lib/protocol"
 	"github.com/syncthing/syncthing/lib/stats"
@@ -173,6 +174,20 @@ type Model struct {
 	}
 	deviceStatisticsReturnsOnCall map[int]struct {
 		result1 map[protocol.DeviceID]stats.DeviceStatistics
+		result2 error
+	}
+	DiagnoseIgnoresStub        func(string, string) (ignore.Diagnosis, error)
+	diagnoseIgnoresMutex       sync.RWMutex
+	diagnoseIgnoresArgsForCall []struct {
+		arg1 string
+		arg2 string
+	}
+	diagnoseIgnoresReturns struct {
+		result1 ignore.Diagnosis
+		result2 error
+	}
+	diagnoseIgnoresReturnsOnCall map[int]struct {
+		result1 ignore.Diagnosis
 		result2 error
 	}
 	DismissPendingDeviceStub        func(protocol.DeviceID) error
@@ -659,6 +674,20 @@ type Model struct {
 		arg1 *contract.Report
 		arg2 int
 		arg3 bool
+	}
+	ValidateIgnoresStub        func(string, []string) (model.IgnoreValidation, error)
+	validateIgnoresMutex       sync.RWMutex
+	validateIgnoresArgsForCall []struct {
+		arg1 string
+		arg2 []string
+	}
+	validateIgnoresReturns struct {
+		result1 model.IgnoreValidation
+		result2 error
+	}
+	validateIgnoresReturnsOnCall map[int]struct {
+		result1 model.IgnoreValidation
+		result2 error
 	}
 	WatchErrorStub        func(string) error
 	watchErrorMutex       sync.RWMutex
@@ -1433,6 +1462,71 @@ func (fake *Model) DeviceStatisticsReturnsOnCall(i int, result1 map[protocol.Dev
 	}
 	fake.deviceStatisticsReturnsOnCall[i] = struct {
 		result1 map[protocol.DeviceID]stats.DeviceStatistics
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *Model) DiagnoseIgnores(arg1 string, arg2 string) (ignore.Diagnosis, error) {
+	fake.diagnoseIgnoresMutex.Lock()
+	ret, specificReturn := fake.diagnoseIgnoresReturnsOnCall[len(fake.diagnoseIgnoresArgsForCall)]
+	fake.diagnoseIgnoresArgsForCall = append(fake.diagnoseIgnoresArgsForCall, struct {
+		arg1 string
+		arg2 string
+	}{arg1, arg2})
+	stub := fake.DiagnoseIgnoresStub
+	fakeReturns := fake.diagnoseIgnoresReturns
+	fake.recordInvocation("DiagnoseIgnores", []interface{}{arg1, arg2})
+	fake.diagnoseIgnoresMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *Model) DiagnoseIgnoresCallCount() int {
+	fake.diagnoseIgnoresMutex.RLock()
+	defer fake.diagnoseIgnoresMutex.RUnlock()
+	return len(fake.diagnoseIgnoresArgsForCall)
+}
+
+func (fake *Model) DiagnoseIgnoresCalls(stub func(string, string) (ignore.Diagnosis, error)) {
+	fake.diagnoseIgnoresMutex.Lock()
+	defer fake.diagnoseIgnoresMutex.Unlock()
+	fake.DiagnoseIgnoresStub = stub
+}
+
+func (fake *Model) DiagnoseIgnoresArgsForCall(i int) (string, string) {
+	fake.diagnoseIgnoresMutex.RLock()
+	defer fake.diagnoseIgnoresMutex.RUnlock()
+	argsForCall := fake.diagnoseIgnoresArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *Model) DiagnoseIgnoresReturns(result1 ignore.Diagnosis, result2 error) {
+	fake.diagnoseIgnoresMutex.Lock()
+	defer fake.diagnoseIgnoresMutex.Unlock()
+	fake.DiagnoseIgnoresStub = nil
+	fake.diagnoseIgnoresReturns = struct {
+		result1 ignore.Diagnosis
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *Model) DiagnoseIgnoresReturnsOnCall(i int, result1 ignore.Diagnosis, result2 error) {
+	fake.diagnoseIgnoresMutex.Lock()
+	defer fake.diagnoseIgnoresMutex.Unlock()
+	fake.DiagnoseIgnoresStub = nil
+	if fake.diagnoseIgnoresReturnsOnCall == nil {
+		fake.diagnoseIgnoresReturnsOnCall = make(map[int]struct {
+			result1 ignore.Diagnosis
+			result2 error
+		})
+	}
+	fake.diagnoseIgnoresReturnsOnCall[i] = struct {
+		result1 ignore.Diagnosis
 		result2 error
 	}{result1, result2}
 }
@@ -3771,6 +3865,76 @@ func (fake *Model) UsageReportingStatsArgsForCall(i int) (*contract.Report, int,
 	defer fake.usageReportingStatsMutex.RUnlock()
 	argsForCall := fake.usageReportingStatsArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *Model) ValidateIgnores(arg1 string, arg2 []string) (model.IgnoreValidation, error) {
+	var arg2Copy []string
+	if arg2 != nil {
+		arg2Copy = make([]string, len(arg2))
+		copy(arg2Copy, arg2)
+	}
+	fake.validateIgnoresMutex.Lock()
+	ret, specificReturn := fake.validateIgnoresReturnsOnCall[len(fake.validateIgnoresArgsForCall)]
+	fake.validateIgnoresArgsForCall = append(fake.validateIgnoresArgsForCall, struct {
+		arg1 string
+		arg2 []string
+	}{arg1, arg2Copy})
+	stub := fake.ValidateIgnoresStub
+	fakeReturns := fake.validateIgnoresReturns
+	fake.recordInvocation("ValidateIgnores", []interface{}{arg1, arg2Copy})
+	fake.validateIgnoresMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *Model) ValidateIgnoresCallCount() int {
+	fake.validateIgnoresMutex.RLock()
+	defer fake.validateIgnoresMutex.RUnlock()
+	return len(fake.validateIgnoresArgsForCall)
+}
+
+func (fake *Model) ValidateIgnoresCalls(stub func(string, []string) (model.IgnoreValidation, error)) {
+	fake.validateIgnoresMutex.Lock()
+	defer fake.validateIgnoresMutex.Unlock()
+	fake.ValidateIgnoresStub = stub
+}
+
+func (fake *Model) ValidateIgnoresArgsForCall(i int) (string, []string) {
+	fake.validateIgnoresMutex.RLock()
+	defer fake.validateIgnoresMutex.RUnlock()
+	argsForCall := fake.validateIgnoresArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *Model) ValidateIgnoresReturns(result1 model.IgnoreValidation, result2 error) {
+	fake.validateIgnoresMutex.Lock()
+	defer fake.validateIgnoresMutex.Unlock()
+	fake.ValidateIgnoresStub = nil
+	fake.validateIgnoresReturns = struct {
+		result1 model.IgnoreValidation
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *Model) ValidateIgnoresReturnsOnCall(i int, result1 model.IgnoreValidation, result2 error) {
+	fake.validateIgnoresMutex.Lock()
+	defer fake.validateIgnoresMutex.Unlock()
+	fake.ValidateIgnoresStub = nil
+	if fake.validateIgnoresReturnsOnCall == nil {
+		fake.validateIgnoresReturnsOnCall = make(map[int]struct {
+			result1 model.IgnoreValidation
+			result2 error
+		})
+	}
+	fake.validateIgnoresReturnsOnCall[i] = struct {
+		result1 model.IgnoreValidation
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *Model) WatchError(arg1 string) error {

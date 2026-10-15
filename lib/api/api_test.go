@@ -242,6 +242,16 @@ func TestAPIServiceRequests(t *testing.T) {
 			Prefix: "{",
 		},
 		{
+			URL:    "/rest/db/ignores/match?folder=default&path=foo",
+			Code:   200,
+			Type:   "application/json",
+			Prefix: "{",
+		},
+		{
+			URL:  "/rest/db/ignores/match?folder=default",
+			Code: http.StatusBadRequest,
+		},
+		{
 			URL:    "/rest/db/need?folder=default",
 			Code:   200,
 			Type:   "application/json",
@@ -1017,7 +1027,10 @@ func startHTTP(t *testing.T, cfg config.Wrapper) string {
 }
 
 func startHTTPWithShutdownTimeout(t *testing.T, cfg config.Wrapper, shutdownTimeout time.Duration) string {
-	m := new(modelmocks.Model)
+	return startHTTPWithModel(t, cfg, new(modelmocks.Model), shutdownTimeout)
+}
+
+func startHTTPWithModel(t *testing.T, cfg config.Wrapper, m *modelmocks.Model, shutdownTimeout time.Duration) string {
 	assetDir := "../../gui"
 	eventSub := new(eventmocks.BufferedSubscription)
 	diskEventSub := new(eventmocks.BufferedSubscription)

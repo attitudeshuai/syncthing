@@ -50,6 +50,7 @@ import (
 	"github.com/syncthing/syncthing/lib/discover"
 	"github.com/syncthing/syncthing/lib/events"
 	"github.com/syncthing/syncthing/lib/fs"
+	"github.com/syncthing/syncthing/lib/ignore"
 	"github.com/syncthing/syncthing/lib/locations"
 	"github.com/syncthing/syncthing/lib/model"
 	"github.com/syncthing/syncthing/lib/protocol"
@@ -255,6 +256,7 @@ func (s *service) Serve(ctx context.Context) error {
 	restMux.HandlerFunc(http.MethodGet, "/rest/db/completion", s.getDBCompletion)             // [device] [folder]
 	restMux.HandlerFunc(http.MethodGet, "/rest/db/file", s.getDBFile)                         // folder file
 	restMux.HandlerFunc(http.MethodGet, "/rest/db/ignores", s.getDBIgnores)                   // folder
+	restMux.HandlerFunc(http.MethodGet, "/rest/db/ignores/match", s.getDBIgnoresMatch)        // folder path
 	restMux.HandlerFunc(http.MethodGet, "/rest/db/need", s.getDBNeed)                         // folder [perpage] [page]
 	restMux.HandlerFunc(http.MethodGet, "/rest/db/remoteneed", s.getDBRemoteNeed)             // device folder [perpage] [page]
 	restMux.HandlerFunc(http.MethodGet, "/rest/db/localchanged", s.getDBLocalChanged)         // folder [perpage] [page]
@@ -288,6 +290,7 @@ func (s *service) Serve(ctx context.Context) error {
 	// The POST handlers
 	restMux.HandlerFunc(http.MethodPost, "/rest/db/prio", s.postDBPrio)                          // folder file
 	restMux.HandlerFunc(http.MethodPost, "/rest/db/ignores", s.postDBIgnores)                    // folder
+	restMux.HandlerFunc(http.MethodPost, "/rest/db/ignores/validate", s.postDBIgnoresValidate)   // folder <body>
 	restMux.HandlerFunc(http.MethodPost, "/rest/db/override", s.postDBOverride)                  // folder
 	restMux.HandlerFunc(http.MethodPost, "/rest/db/revert", s.postDBRevert)                      // folder
 	restMux.HandlerFunc(http.MethodPost, "/rest/db/scan", s.postDBScan)                          // folder [sub...] [delay]
@@ -1340,6 +1343,70 @@ func (s *service) postDBIgnores(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.getDBIgnores(w, r)
+}
+
+type dbIgnoresMatchResponse struct {
+	Folder string `json:"folder"`
+	Path   string `json:"path"`
+	ignore.Diagnosis
+}
+
+func (s *service) getDBIgnoresMatch(w http.ResponseWriter, r *http.Request) {
+	qs := r.URL.Query()
+
+	folder := qs.Get("folder")
+	path := qs.Get("path")
+	if path == "" {
+		http.Error(w, "empty path", http.StatusBadRequest)
+		return
+	}
+
+	diagnosis, err := s.model.DiagnoseIgnores(folder, path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	sendJSON(w, dbIgnoresMatchResponse{
+		Folder:    folder,
+		Path:      path,
+		Diagnosis: diagnosis,
+	})
+}
+
+type dbIgnoresValidateResponse struct {
+	Folder string `json:"folder"`
+	model.IgnoreValidation
+}
+
+// postDBIgnoresValidate validates prospective ignore content and estimates
+// its impact without writing anything to disk or triggering a scan.
+func (s *service) postDBIgnoresValidate(w http.ResponseWriter, r *http.Request) {
+	qs := r.URL.Query()
+
+	bs, err := io.ReadAll(r.Body)
+	r.Body.Close()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var data map[string][]string
+	if err := json.Unmarshal(bs, &data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	validation, err := s.model.ValidateIgnores(qs.Get("folder"), data["ignore"])
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	sendJSON(w, dbIgnoresValidateResponse{
+		Folder:           qs.Get("folder"),
+		IgnoreValidation: validation,
+	})
 }
 
 func (s *service) getIndexEvents(w http.ResponseWriter, r *http.Request) {

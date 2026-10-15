@@ -92,6 +92,8 @@ type Model interface {
 	LoadIgnores(folder string) ([]string, []string, error)
 	CurrentIgnores(folder string) ([]string, []string, error)
 	SetIgnores(folder string, content []string) error
+	DiagnoseIgnores(folder string, path string) (ignore.Diagnosis, error)
+	ValidateIgnores(folder string, content []string) (IgnoreValidation, error)
 
 	GetFolderVersions(folder string) (map[string][]versioner.FileVersion, error)
 	RestoreFolderVersions(folder string, versions map[string]time.Time) (map[string]error, error)
@@ -2261,6 +2263,139 @@ func (m *model) setIgnores(cfg config.FolderConfiguration, content []string) err
 		runner.ScheduleScan()
 	}
 	return nil
+}
+
+// IgnoreImpact estimates how changing the ignore rules would affect the
+// currently indexed content. It is computed read-only; nothing is scanned,
+// written or indexed.
+type IgnoreImpact struct {
+	// NewlyIgnoredCount is the number of indexed entries that would become
+	// ignored with the new rules.
+	NewlyIgnoredCount int `json:"newlyIgnoredCount"`
+	// NewlyIgnoredSamples holds a few example paths for NewlyIgnoredCount.
+	NewlyIgnoredSamples []string `json:"newlyIgnoredSamples"`
+	// NewlyAllowedCount is the number of currently ignored indexed entries
+	// that would become synced with the new rules.
+	NewlyAllowedCount int `json:"newlyAllowedCount"`
+	// NewlyAllowedSamples holds a few example paths for NewlyAllowedCount.
+	NewlyAllowedSamples []string `json:"newlyAllowedSamples"`
+}
+
+// IgnoreValidation is the result of validating prospective ignore content:
+// per-line errors and warnings plus the estimated impact on the index.
+type IgnoreValidation struct {
+	// Valid is true when there are no parse errors.
+	Valid bool `json:"valid"`
+	// Errors are per-line parse errors, possibly in included files.
+	Errors []ignore.Issue `json:"errors"`
+	// Warnings are non-fatal per-line observations.
+	Warnings []ignore.Issue `json:"warnings"`
+	// Impact estimates the effect on the current index contents.
+	Impact IgnoreImpact `json:"impact"`
+}
+
+// impactSampleLimit is the maximum number of example paths per impact
+// category.
+const impactSampleLimit = 5
+
+// ignoresMatcher returns the folder configuration and the matcher
+// reflecting its current on-disk ignore rules, loading them read-only when
+// necessary. Parse errors are tolerated so that diagnosis and validation
+// still work against whatever the matcher currently holds.
+func (m *model) ignoresMatcher(folder string) (*ignore.Matcher, config.FolderConfiguration, error) {
+	m.mut.RLock()
+	cfg, cfgOk := m.folderCfgs[folder]
+	matcher, ignoresOk := m.folderIgnores[folder]
+	m.mut.RUnlock()
+
+	if !cfgOk {
+		var ok bool
+		cfg, ok = m.cfg.Folder(folder)
+		if !ok {
+			return nil, config.FolderConfiguration{}, fmt.Errorf("folder %s does not exist", folder)
+		}
+	}
+
+	if cfg.Type == config.FolderTypeReceiveEncrypted {
+		return nil, cfg, fmt.Errorf("ignores are not supported on receive-encrypted folder %s", folder)
+	}
+
+	if !ignoresOk {
+		matcher = ignore.New(cfg.Filesystem())
+	}
+	if err := matcher.Load(".stignore"); err != nil && !fs.IsNotExist(err) {
+		// Keep going with whatever patterns the matcher has (possibly none
+		// for a broken file); validation can still report useful data.
+		l.Debugf("Ignore rules for folder %q failed to load: %v", folder, err)
+	}
+	return matcher, cfg, nil
+}
+
+// DiagnoseIgnores explains why a given path is ignored or synced: it
+// returns the final verdict together with the chain of rules leading to it.
+func (m *model) DiagnoseIgnores(folder string, path string) (ignore.Diagnosis, error) {
+	if path == "" {
+		return ignore.Diagnosis{}, errors.New("empty path")
+	}
+	path, err := fs.Canonicalize(path)
+	if err != nil {
+		return ignore.Diagnosis{}, err
+	}
+	matcher, _, err := m.ignoresMatcher(folder)
+	if err != nil {
+		return ignore.Diagnosis{}, err
+	}
+	return matcher.Diagnose(path), nil
+}
+
+// ValidateIgnores parses prospective ignore content without writing it to
+// disk and estimates its effect on the current index contents. No scan is
+// scheduled and the index is not modified.
+func (m *model) ValidateIgnores(folder string, content []string) (IgnoreValidation, error) {
+	current, cfg, err := m.ignoresMatcher(folder)
+	if err != nil {
+		return IgnoreValidation{}, err
+	}
+
+	candidate, parseErrs, parseWarnings := ignore.Validate(cfg.Filesystem(), strings.NewReader(strings.Join(content, "\n")), ".stignore")
+
+	validation := IgnoreValidation{
+		Valid:    len(parseErrs) == 0,
+		Errors:   parseErrs,
+		Warnings: parseWarnings,
+	}
+	if validation.Errors == nil {
+		validation.Errors = []ignore.Issue{}
+	}
+	if validation.Warnings == nil {
+		validation.Warnings = []ignore.Issue{}
+	}
+
+	// Estimate the impact on the currently indexed content by trial
+	// matching both rule sets against the local index. Read-only.
+	seq, cancel := m.LocalFiles(folder, protocol.LocalDeviceID)
+	defer func() { _ = cancel() }()
+	for fi := range seq {
+		if fi.IsDeleted() {
+			continue
+		}
+		wasIgnored := current.Match(fi.Name).IsIgnored()
+		willIgnore := candidate.Match(fi.Name).IsIgnored()
+		switch {
+		case !wasIgnored && willIgnore:
+			validation.Impact.NewlyIgnoredCount++
+			if len(validation.Impact.NewlyIgnoredSamples) < impactSampleLimit {
+				validation.Impact.NewlyIgnoredSamples = append(validation.Impact.NewlyIgnoredSamples, fi.Name)
+			}
+		case wasIgnored && !willIgnore:
+			validation.Impact.NewlyAllowedCount++
+			if len(validation.Impact.NewlyAllowedSamples) < impactSampleLimit {
+				validation.Impact.NewlyAllowedSamples = append(validation.Impact.NewlyAllowedSamples, fi.Name)
+			}
+		}
+	}
+
+	return validation, nil
 }
 
 // OnHello is called when an device connects to us.

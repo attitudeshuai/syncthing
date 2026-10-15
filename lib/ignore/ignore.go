@@ -72,6 +72,26 @@ type Pattern struct {
 	pattern string
 	match   glob.Glob
 	result  ignoreresult.R
+	src     ruleSource
+}
+
+// ruleSource records where a pattern came from. Multiple Pattern entries may
+// share the same source, as a single source line expands into several
+// patterns.
+type ruleSource struct {
+	// file is the ignore file the rule was read from, as referenced from
+	// the folder (".stignore" for the root file, otherwise the path of the
+	// #include-d file).
+	file string
+	// line is the 1-based line number in file, counting blank and comment
+	// lines as they appear on disk.
+	line int
+	// text is the rule text exactly as written on that line, before any
+	// escape character translation.
+	text string
+	// viaInclude is true when the rule was read from an #include-d file
+	// rather than the root ignore file.
+	viaInclude bool
 }
 
 func (p Pattern) String() string {
@@ -191,7 +211,7 @@ func (m *Matcher) Parse(r io.Reader, file string) error {
 }
 
 func (m *Matcher) parseLocked(r io.Reader, file string) error {
-	lines, patterns, err := parseIgnoreFile(m.fs, r, file, m.changeDetector, make(map[string]struct{}))
+	lines, patterns, err := parseIgnoreFile(m.fs, r, file, file, false, m.changeDetector, make(map[string]struct{}), nil)
 	// Error is saved and returned at the end. We process the patterns
 	// (possibly blank) anyway.
 
@@ -320,7 +340,7 @@ func loadIgnoreFile(ffs fs.Filesystem, file string) (fs.File, fs.FileInfo, error
 	return fd, info, err
 }
 
-func loadParseIncludeFile(filesystem fs.Filesystem, file string, cd ChangeDetector, linesSeen map[string]struct{}) ([]Pattern, error) {
+func loadParseIncludeFile(filesystem fs.Filesystem, file, sourceFile string, cd ChangeDetector, linesSeen map[string]struct{}, coll *issueCollector) ([]Pattern, error) {
 	// Allow escaping the folders filesystem.
 	// TODO: Deprecate, somehow?
 	if filesystem.Type() == fs.FilesystemTypeBasic {
@@ -352,7 +372,13 @@ func loadParseIncludeFile(filesystem fs.Filesystem, file string, cd ChangeDetect
 
 	cd.Remember(filesystem, file, info.ModTime())
 
-	_, patterns, err := parseIgnoreFile(filesystem, fd, file, cd, linesSeen)
+	_, patterns, err := parseIgnoreFile(filesystem, fd, file, sourceFile, true, cd, linesSeen, coll)
+	if coll != nil && err != nil {
+		// The issues have already been recorded inside the included file by
+		// the collector; signal that to the caller instead of making it
+		// report the failure a second time.
+		return patterns, errIssuesCollected
+	}
 	return patterns, err
 }
 
@@ -449,13 +475,27 @@ func nativeUnicodeNorm(s string) string {
 	return norm.NFC.String(s)
 }
 
-func parseIgnoreFile(fs fs.Filesystem, fd io.Reader, currentFile string, cd ChangeDetector, linesSeen map[string]struct{}) ([]string, []Pattern, error) {
+// errIssuesCollected is returned (in collection mode only) to signal that one
+// or more issues were recorded in the collector while parsing. It must never
+// reach the public API; strict mode always returns the first concrete error.
+var errIssuesCollected = errors.New("issues collected while parsing ignore file")
+
+func parseIgnoreFile(filesystem fs.Filesystem, fd io.Reader, currentFile, sourceFile string, viaInclude bool, cd ChangeDetector, linesSeen map[string]struct{}, coll *issueCollector) ([]string, []Pattern, error) {
 	var patterns []Pattern
 
-	addPattern := func(line string) error {
+	addPattern := func(line, rawLine string, lineNo int) error {
 		newPatterns, err := parseLine(line)
 		if err != nil {
 			return fmt.Errorf("invalid pattern %q in ignore file: %w", line, err)
+		}
+		src := ruleSource{
+			file:       sourceFile,
+			line:       lineNo,
+			text:       rawLine,
+			viaInclude: viaInclude,
+		}
+		for i := range newPatterns {
+			newPatterns[i].src = src
 		}
 		patterns = append(patterns, newPatterns...)
 		return nil
@@ -476,32 +516,45 @@ func parseIgnoreFile(fs fs.Filesystem, fd io.Reader, currentFile string, cd Chan
 	var err error
 	escapePrefixSeen := false
 	includedPatterns := 0
-	for _, line := range lines {
+	for idx, rawLine := range lines {
+		// 1-based line number as it appears in the file on disk.
+		lineNo := idx + 1
+		line := rawLine
+
 		if strings.HasPrefix(line, escapePrefix) {
-			if escapePrefixSeen {
-				return nil, nil, errors.New("mutiple #escape= lines found in ignore file")
-			}
-
-			if len(patterns)-includedPatterns > 0 {
-				return nil, nil, errors.New("#escape= line found after patterns in ignore file")
-			}
-
-			escapePrefixSeen = true
-			trimmed := strings.TrimSpace(strings.TrimPrefix(line, escapePrefix))
-			before, esc, ok := strings.Cut(trimmed, "=")
-			if ok && before == "" {
-				esc = strings.TrimSpace(esc)
-				// avoids allocation of a new slice.
-				if utf8.RuneCountInString(esc) == 1 {
-					escapeChar, _ = utf8.DecodeRuneInString(esc)
-					continue
+			var escapeErr error
+			switch {
+			case escapePrefixSeen:
+				escapeErr = errors.New("mutiple #escape= lines found in ignore file")
+			case len(patterns)-includedPatterns > 0:
+				escapeErr = errors.New("#escape= line found after patterns in ignore file")
+			default:
+				escapePrefixSeen = true
+				trimmed := strings.TrimSpace(strings.TrimPrefix(line, escapePrefix))
+				before, esc, ok := strings.Cut(trimmed, "=")
+				if ok && before == "" {
+					esc = strings.TrimSpace(esc)
+					// avoids allocation of a new slice.
+					if utf8.RuneCountInString(esc) == 1 {
+						escapeChar, _ = utf8.DecodeRuneInString(esc)
+						continue
+					}
 				}
+				escapeErr = fmt.Errorf("failed to parse #escape= line in ignore file: %q", line)
 			}
-
-			return nil, nil, fmt.Errorf("failed to parse #escape= line in ignore file: %q", line)
+			if coll == nil {
+				return nil, nil, escapeErr
+			}
+			coll.addError(sourceFile, lineNo, escapeErr.Error())
+			continue
 		}
 
 		if _, ok := linesSeen[line]; ok {
+			// Blank lines and comments are silently deduplicated in strict
+			// mode as well; a repeated actual rule is worth a warning.
+			if coll != nil && line != "" && !strings.HasPrefix(line, "//") {
+				coll.addWarning(sourceFile, lineNo, fmt.Sprintf("duplicate rule %q, ignored", line))
+			}
 			continue
 		}
 		linesSeen[line] = struct{}{}
@@ -540,31 +593,47 @@ func parseIgnoreFile(fs fs.Filesystem, fd io.Reader, currentFile string, cd Chan
 
 			includeFile := filepath.Join(filepath.Dir(currentFile), includeRel)
 			var includePatterns []Pattern
-			if includePatterns, err = loadParseIncludeFile(fs, includeFile, cd, linesSeen); err == nil {
+			includePatterns, incErr := loadParseIncludeFile(filesystem, includeFile, includeFile, cd, linesSeen, coll)
+			switch {
+			case incErr == nil || coll != nil && errors.Is(incErr, errIssuesCollected):
+				// Successful, or issues within the included file were
+				// already recorded there. In the latter case we still
+				// keep whatever patterns parsed successfully.
 				patterns = append(patterns, includePatterns...)
 				includedPatterns += len(includePatterns)
-			} else {
+			case coll != nil:
+				// Load level failure (missing file, include cycle): pin it
+				// to the #include line in the current file.
+				coll.addError(sourceFile, lineNo, fmt.Sprintf("failed to load include file %s: %v", includeFile, incErr))
+			default:
 				// Wrap the error, as if the include does not exist, we get a
 				// IsNotExists(err) == true error, which we use to check
 				// existence of the .stignore file, and just end up assuming
 				// there is none, rather than a broken include.
-				err = parseError(fmt.Errorf("failed to load include file %s: %w", includeFile, err))
+				err = parseError(fmt.Errorf("failed to load include file %s: %w", includeFile, incErr))
 			}
 		case strings.HasSuffix(line, "/**"):
-			err = addPattern(line)
+			err = addPattern(line, rawLine, lineNo)
 		case strings.HasSuffix(line, "/"):
-			err = addPattern(line + "**")
+			err = addPattern(line+"**", rawLine, lineNo)
 		default:
-			err = addPattern(line)
+			err = addPattern(line, rawLine, lineNo)
 			if err == nil {
-				err = addPattern(line + "/**")
+				err = addPattern(line+"/**", rawLine, lineNo)
 			}
 		}
 		if err != nil {
-			return lines, nil, err
+			if coll == nil {
+				return lines, nil, err
+			}
+			coll.addError(sourceFile, lineNo, err.Error())
+			continue
 		}
 	}
 
+	if coll != nil && coll.hasErrors() {
+		return lines, patterns, errIssuesCollected
+	}
 	return lines, patterns, nil
 }
 
