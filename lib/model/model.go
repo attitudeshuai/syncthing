@@ -127,6 +127,8 @@ type Model interface {
 	DismissPendingDevice(device protocol.DeviceID) error
 	DismissPendingFolder(device protocol.DeviceID, folder string) error
 
+	DiskWatermarkStatuses() []DiskWatermarkStatus
+
 	GlobalDirectoryTree(folder, prefix string, levels int, dirsOnly bool) ([]*TreeEntry, error)
 
 	RequestGlobal(ctx context.Context, deviceID protocol.DeviceID, folder, name string, blockNo int, offset int64, size int, hash []byte, fromTemporary bool) ([]byte, error)
@@ -176,6 +178,11 @@ type model struct {
 	deviceDownloads                map[protocol.DeviceID]*deviceDownloadState
 	remoteFolderStates             map[protocol.DeviceID]map[string]remoteFolderState // deviceID -> folders
 	indexHandlers                  *serviceMap[protocol.DeviceID, *indexHandlerRegistry]
+
+	// diskWatermarks periodically checks the free space of the disks
+	// backing running folders and suspends write pulls to disks that are
+	// below the configured low watermark.
+	diskWatermarks *diskWatermarkService
 
 	// for testing only
 	foldersRunning atomic.Int32
@@ -257,9 +264,11 @@ func NewModel(cfg config.Wrapper, id protocol.DeviceID, sdb db.DB, protectedFile
 		m.deviceStatRefs[devID] = stats.NewDeviceStatisticsReference(db.NewTyped(sdb, "devicestats/"+devID.String()))
 		m.setConnRequestLimitersLocked(cfg)
 	}
+	m.diskWatermarks = newDiskWatermarkService(cfg, evLogger, m.diskWatermarkTargets)
 	m.Add(m.folderRunners)
 	m.Add(m.progressEmitter)
 	m.Add(m.indexHandlers)
+	m.Add(m.diskWatermarks)
 	m.Add(svcutil.AsService(m.serve, m.String()))
 
 	return m
@@ -332,6 +341,32 @@ func (m *model) fatal(err error) {
 	case m.fatalChan <- err:
 	default:
 	}
+}
+
+// diskWatermarkTargets snapshots the running folders that perform write
+// pulls on basic filesystems, grouped information for the disk watermark
+// service. Called once per watermark check under the model read lock.
+func (m *model) diskWatermarkTargets() []diskWatermarkTarget {
+	m.mut.RLock()
+	defer m.mut.RUnlock()
+
+	targets := make([]diskWatermarkTarget, 0, len(m.folderRunners.services))
+	for _, runner := range m.folderRunners.services {
+		wr, ok := runner.(diskWatermarkRunner)
+		if !ok {
+			continue
+		}
+		if target, ok := wr.diskWatermarkTarget(); ok {
+			targets = append(targets, target)
+		}
+	}
+	return targets
+}
+
+// DiskWatermarkStatuses returns the current watermark state of all managed
+// data disks.
+func (m *model) DiskWatermarkStatuses() []DiskWatermarkStatus {
+	return m.diskWatermarks.statuses()
 }
 
 // Need to hold lock on m.mut when calling this.

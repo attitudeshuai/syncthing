@@ -100,15 +100,15 @@ type Model struct {
 	connectedToReturnsOnCall map[int]struct {
 		result1 bool
 	}
-	ConnectionStatsStub        func() map[string]interface{}
+	ConnectionStatsStub        func() map[string]any
 	connectionStatsMutex       sync.RWMutex
 	connectionStatsArgsForCall []struct {
 	}
 	connectionStatsReturns struct {
-		result1 map[string]interface{}
+		result1 map[string]any
 	}
 	connectionStatsReturnsOnCall map[int]struct {
-		result1 map[string]interface{}
+		result1 map[string]any
 	}
 	CurrentFolderFileStub        func(string, string) (protocol.FileInfo, bool, error)
 	currentFolderFileMutex       sync.RWMutex
@@ -174,6 +174,16 @@ type Model struct {
 	deviceStatisticsReturnsOnCall map[int]struct {
 		result1 map[protocol.DeviceID]stats.DeviceStatistics
 		result2 error
+	}
+	DiskWatermarkStatusesStub        func() []model.DiskWatermarkStatus
+	diskWatermarkStatusesMutex       sync.RWMutex
+	diskWatermarkStatusesArgsForCall []struct {
+	}
+	diskWatermarkStatusesReturns struct {
+		result1 []model.DiskWatermarkStatus
+	}
+	diskWatermarkStatusesReturnsOnCall map[int]struct {
+		result1 []model.DiskWatermarkStatus
 	}
 	DismissPendingDeviceStub        func(protocol.DeviceID) error
 	dismissPendingDeviceMutex       sync.RWMutex
@@ -1092,7 +1102,7 @@ func (fake *Model) ConnectedToReturnsOnCall(i int, result1 bool) {
 	}{result1}
 }
 
-func (fake *Model) ConnectionStats() map[string]interface{} {
+func (fake *Model) ConnectionStats() map[string]any {
 	fake.connectionStatsMutex.Lock()
 	ret, specificReturn := fake.connectionStatsReturnsOnCall[len(fake.connectionStatsArgsForCall)]
 	fake.connectionStatsArgsForCall = append(fake.connectionStatsArgsForCall, struct {
@@ -1116,32 +1126,32 @@ func (fake *Model) ConnectionStatsCallCount() int {
 	return len(fake.connectionStatsArgsForCall)
 }
 
-func (fake *Model) ConnectionStatsCalls(stub func() map[string]interface{}) {
+func (fake *Model) ConnectionStatsCalls(stub func() map[string]any) {
 	fake.connectionStatsMutex.Lock()
 	defer fake.connectionStatsMutex.Unlock()
 	fake.ConnectionStatsStub = stub
 }
 
-func (fake *Model) ConnectionStatsReturns(result1 map[string]interface{}) {
+func (fake *Model) ConnectionStatsReturns(result1 map[string]any) {
 	fake.connectionStatsMutex.Lock()
 	defer fake.connectionStatsMutex.Unlock()
 	fake.ConnectionStatsStub = nil
 	fake.connectionStatsReturns = struct {
-		result1 map[string]interface{}
+		result1 map[string]any
 	}{result1}
 }
 
-func (fake *Model) ConnectionStatsReturnsOnCall(i int, result1 map[string]interface{}) {
+func (fake *Model) ConnectionStatsReturnsOnCall(i int, result1 map[string]any) {
 	fake.connectionStatsMutex.Lock()
 	defer fake.connectionStatsMutex.Unlock()
 	fake.ConnectionStatsStub = nil
 	if fake.connectionStatsReturnsOnCall == nil {
 		fake.connectionStatsReturnsOnCall = make(map[int]struct {
-			result1 map[string]interface{}
+			result1 map[string]any
 		})
 	}
 	fake.connectionStatsReturnsOnCall[i] = struct {
-		result1 map[string]interface{}
+		result1 map[string]any
 	}{result1}
 }
 
@@ -1435,6 +1445,59 @@ func (fake *Model) DeviceStatisticsReturnsOnCall(i int, result1 map[protocol.Dev
 		result1 map[protocol.DeviceID]stats.DeviceStatistics
 		result2 error
 	}{result1, result2}
+}
+
+func (fake *Model) DiskWatermarkStatuses() []model.DiskWatermarkStatus {
+	fake.diskWatermarkStatusesMutex.Lock()
+	ret, specificReturn := fake.diskWatermarkStatusesReturnsOnCall[len(fake.diskWatermarkStatusesArgsForCall)]
+	fake.diskWatermarkStatusesArgsForCall = append(fake.diskWatermarkStatusesArgsForCall, struct {
+	}{})
+	stub := fake.DiskWatermarkStatusesStub
+	fakeReturns := fake.diskWatermarkStatusesReturns
+	fake.recordInvocation("DiskWatermarkStatuses", []interface{}{})
+	fake.diskWatermarkStatusesMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *Model) DiskWatermarkStatusesCallCount() int {
+	fake.diskWatermarkStatusesMutex.RLock()
+	defer fake.diskWatermarkStatusesMutex.RUnlock()
+	return len(fake.diskWatermarkStatusesArgsForCall)
+}
+
+func (fake *Model) DiskWatermarkStatusesCalls(stub func() []model.DiskWatermarkStatus) {
+	fake.diskWatermarkStatusesMutex.Lock()
+	defer fake.diskWatermarkStatusesMutex.Unlock()
+	fake.DiskWatermarkStatusesStub = stub
+}
+
+func (fake *Model) DiskWatermarkStatusesReturns(result1 []model.DiskWatermarkStatus) {
+	fake.diskWatermarkStatusesMutex.Lock()
+	defer fake.diskWatermarkStatusesMutex.Unlock()
+	fake.DiskWatermarkStatusesStub = nil
+	fake.diskWatermarkStatusesReturns = struct {
+		result1 []model.DiskWatermarkStatus
+	}{result1}
+}
+
+func (fake *Model) DiskWatermarkStatusesReturnsOnCall(i int, result1 []model.DiskWatermarkStatus) {
+	fake.diskWatermarkStatusesMutex.Lock()
+	defer fake.diskWatermarkStatusesMutex.Unlock()
+	fake.DiskWatermarkStatusesStub = nil
+	if fake.diskWatermarkStatusesReturnsOnCall == nil {
+		fake.diskWatermarkStatusesReturnsOnCall = make(map[int]struct {
+			result1 []model.DiskWatermarkStatus
+		})
+	}
+	fake.diskWatermarkStatusesReturnsOnCall[i] = struct {
+		result1 []model.DiskWatermarkStatus
+	}{result1}
 }
 
 func (fake *Model) DismissPendingDevice(arg1 protocol.DeviceID) error {

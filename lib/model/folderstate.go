@@ -28,6 +28,11 @@ const (
 	FolderCleanWaiting
 	FolderError
 	FolderStarting
+	// FolderDiskWatermarkSuspended is set when write pulls are held back
+	// because the folder's data disk crossed the global low free space
+	// watermark. It must remain last in this list to avoid shifting the
+	// numeric values exported via the folder state metric.
+	FolderDiskWatermarkSuspended
 )
 
 func (s folderState) String() string {
@@ -52,6 +57,8 @@ func (s folderState) String() string {
 		return "clean-waiting"
 	case FolderError:
 		return "error"
+	case FolderDiskWatermarkSuspended:
+		return "disk-watermark-suspended"
 	default:
 		return "unknown"
 	}

@@ -107,6 +107,56 @@ func checkAvailableSpace(req uint64, minFree Size, usage fs.Usage) error {
 	return CheckFreeSpace(minFree, usage)
 }
 
+// FreeSpaceBelow reports whether the available free space is strictly below
+// the given watermark. A non-positive watermark never trips. Percentage
+// watermarks require the total size to be known.
+func FreeSpaceBelow(watermark Size, usage fs.Usage) (bool, error) {
+	cmp, err := compareFreeSpace(watermark, usage)
+	if err != nil {
+		return false, err
+	}
+	return cmp < 0, nil
+}
+
+// FreeSpaceAbove reports whether the available free space is strictly above
+// the given watermark. A non-positive watermark is always exceeded.
+// Percentage watermarks require the total size to be known.
+func FreeSpaceAbove(watermark Size, usage fs.Usage) (bool, error) {
+	cmp, err := compareFreeSpace(watermark, usage)
+	if err != nil {
+		return false, err
+	}
+	return cmp > 0, nil
+}
+
+// compareFreeSpace compares the free space against the watermark and returns
+// -1 when below, 0 when equal and 1 when above.
+func compareFreeSpace(watermark Size, usage fs.Usage) (int, error) {
+	val := watermark.BaseValue()
+	if val <= 0 {
+		return 1, nil
+	}
+
+	var current float64
+	if watermark.Percentage() {
+		if usage.Total == 0 {
+			return 0, fmt.Errorf("can't evaluate percentage watermark %v without total disk size", watermark)
+		}
+		current = float64(usage.Free) / float64(usage.Total) * 100
+	} else {
+		current = float64(usage.Free)
+	}
+
+	switch {
+	case current < val:
+		return -1, nil
+	case current > val:
+		return 1, nil
+	default:
+		return 0, nil
+	}
+}
+
 func formatSI(b uint64) string {
 	switch {
 	case b < 1000:

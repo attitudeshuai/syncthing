@@ -58,6 +58,7 @@ const (
 	LoginAttempt
 	Failure
 	UpgradeRestartScheduled
+	DiskWatermarkChanged
 
 	AllEvents = (1 << iota) - 1
 )
@@ -137,6 +138,8 @@ func (t EventType) String() string {
 		return "Failure"
 	case UpgradeRestartScheduled:
 		return "UpgradeRestartScheduled"
+	case DiskWatermarkChanged:
+		return "DiskWatermarkChanged"
 	default:
 		return "Unknown"
 	}

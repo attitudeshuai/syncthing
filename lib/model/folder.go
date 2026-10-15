@@ -89,6 +89,10 @@ type folder struct {
 	puller    puller
 	versioner versioner.Versioner
 
+	// diskWatermarkWake is signaled when the global data-disk watermark
+	// state for this folder changes (suspended or resumed).
+	diskWatermarkWake chan struct{}
+
 	warnedKqueue bool
 }
 
@@ -126,6 +130,8 @@ func newFolder(model *model, ignores *ignore.Matcher, cfg config.FolderConfigura
 		versionCleanupTimer:    time.NewTimer(time.Duration(cfg.Versioning.CleanupIntervalS) * time.Second),
 
 		pullScheduled: make(chan struct{}, 1), // This needs to be 1-buffered so that we queue a pull if we're busy when it comes.
+
+		diskWatermarkWake: make(chan struct{}, 1),
 
 		doInSyncChan: make(chan syncRequest),
 
@@ -263,15 +269,32 @@ func (f *folder) Serve(ctx context.Context) error {
 			}
 			f.sl.DebugContext(ctx, "Doing version cleanup")
 			f.versionCleanupTimerFired(ctx)
+
+		case <-f.diskWatermarkWake:
+			f.handleDiskWatermarkWake(ctx)
+			continue
 		}
 
 		if svcutil.IsFatal(err) {
 			return err
 		}
 
-		// Set the state to FolderError when err is non-nil, otherwise reset
-		// it back to FolderIdle.
-		f.setError(ctx, err)
+		switch {
+		case err != nil:
+			// Set the state to FolderError.
+			f.setError(ctx, err)
+		case f.isDiskWatermarkSuspended():
+			// Write pulls are suspended by the global data-disk
+			// watermark. Converge to the suspended state instead of
+			// resetting the folder to idle, which would hide the
+			// suspension. A health error state takes precedence.
+			if state, _, stateErr := f.getState(); stateErr == nil && state != FolderError {
+				f.setState(FolderDiskWatermarkSuspended)
+			}
+		default:
+			// Reset the state back to FolderIdle.
+			f.setError(ctx, nil)
+		}
 	}
 }
 
@@ -390,6 +413,60 @@ func (f *folder) getHealthErrorWithoutIgnores() error {
 	}
 
 	return nil
+}
+
+// isDiskWatermarkSuspended reports whether write pulls for this folder are
+// currently held back by the global data-disk free space watermark.
+func (f *folder) isDiskWatermarkSuspended() bool {
+	return f.model.diskWatermarks != nil && f.model.diskWatermarks.isFolderSuspended(f.folderID)
+}
+
+// diskWatermarkNotify wakes the serve loop so it adopts a changed watermark
+// state. Non-blocking: a pending wake is sufficient.
+func (f *folder) diskWatermarkNotify() {
+	select {
+	case f.diskWatermarkWake <- struct{}{}:
+	default:
+	}
+}
+
+// handleDiskWatermarkWake adopts the current disk watermark suspension
+// state. Scans and other operations are left untouched; only the displayed
+// folder state and pull scheduling are adjusted.
+func (f *folder) handleDiskWatermarkWake(_ context.Context) {
+	if f.isDiskWatermarkSuspended() {
+		if state, _, _ := f.getState(); state == FolderIdle {
+			f.setState(FolderDiskWatermarkSuspended)
+		}
+		return
+	}
+
+	if state, _, _ := f.getState(); state == FolderDiskWatermarkSuspended {
+		f.setState(FolderIdle)
+	}
+	// Resume pulling promptly, regardless of the state we were in.
+	f.SchedulePull()
+}
+
+// diskWatermarkTarget returns the watermark service target for this folder
+// when it performs write pulls on a basic filesystem. Folders on other
+// filesystem types (e.g. the fake filesystem used in tests) and send-only
+// folders do not perform write pulls and are excluded.
+func (f *folder) diskWatermarkTarget() (diskWatermarkTarget, bool) {
+	if f.FilesystemType != config.FilesystemTypeBasic {
+		return diskWatermarkTarget{}, false
+	}
+	switch f.Type {
+	case config.FolderTypeSendReceive, config.FolderTypeReceiveOnly, config.FolderTypeReceiveEncrypted:
+	default:
+		return diskWatermarkTarget{}, false
+	}
+	return diskWatermarkTarget{
+		id:           f.folderID,
+		root:         f.mtimefs.URI(),
+		notify:       f.diskWatermarkNotify,
+		schedulePull: f.SchedulePull,
+	}, true
 }
 
 func (f *folder) pull(ctx context.Context) (success bool, err error) {

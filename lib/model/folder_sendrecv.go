@@ -385,6 +385,12 @@ loop:
 			}
 
 		case file.Type == protocol.FileInfoTypeFile:
+			if f.isDiskWatermarkSuspended() {
+				// Write pulls are suspended by the global data-disk
+				// watermark. Leave the file needed without recording an
+				// error; it gets pulled once the disk recovers.
+				continue
+			}
 			curFile, hasCurFile, err := f.model.sdb.GetDeviceFile(f.folderID, protocol.LocalDeviceID, file.Name)
 			if err != nil {
 				return nil, nil, err
@@ -409,12 +415,23 @@ loop:
 			dbUpdateChan <- dbUpdateJob{file, dbUpdateInvalidate}
 
 		case file.IsDirectory() && !file.IsSymlink():
+			if f.isDiskWatermarkSuspended() {
+				// Directory creation is a write pull; it is held back
+				// while the disk is over its low watermark. Deletions are
+				// handled above and remain unaffected.
+				continue
+			}
 			f.sl.DebugContext(ctx, "Handling directory", slogutil.FilePath(file.Name))
 			if f.checkParent(file.Name, scanChan) {
 				f.handleDir(file, dbUpdateChan, scanChan)
 			}
 
 		case file.IsSymlink():
+			if f.isDiskWatermarkSuspended() {
+				// Symlink creation is a write pull; it is held back while
+				// the disk is over its low watermark.
+				continue
+			}
 			f.sl.DebugContext(ctx, "Handling symlink", slogutil.FilePath(file.Name))
 			if f.checkParent(file.Name, scanChan) {
 				f.handleSymlink(file, dbUpdateChan, scanChan)
@@ -439,6 +456,14 @@ nextFile:
 		case <-ctx.Done():
 			return fileDeletions, dirDeletions, ctx.Err()
 		default:
+		}
+
+		if f.isDiskWatermarkSuspended() {
+			// The disk crossed the low watermark mid-pull: stop processing
+			// queued file writes. They remain needed in the database and get
+			// pulled once the disk recovers. Pending deletions below are
+			// still applied.
+			break nextFile
 		}
 
 		fileName, ok := f.queue.Pop()
