@@ -8,9 +8,11 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/julienschmidt/httprouter"
 
@@ -56,6 +58,31 @@ func (c *configMuxBuilder) registerConfigInsync(path string) {
 func (c *configMuxBuilder) registerConfigRequiresRestart(path string) {
 	c.HandlerFunc(http.MethodGet, path, func(w http.ResponseWriter, _ *http.Request) {
 		sendJSON(w, map[string]bool{"requiresRestart": c.cfg.RequiresRestart()})
+	})
+}
+
+func (c *configMuxBuilder) registerConfigBackups(path string) {
+	c.HandlerFunc(http.MethodGet, path, func(w http.ResponseWriter, _ *http.Request) {
+		sendJSON(w, c.cfg.Backups())
+	})
+
+	c.Handle(http.MethodPost, path+"/:generation/restore", func(w http.ResponseWriter, _ *http.Request, p httprouter.Params) {
+		generation, err := strconv.Atoi(p.ByName("generation"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		waiter, err := c.cfg.RestoreBackup(generation)
+		if err != nil {
+			if errors.Is(err, config.ErrBackupNotFound) || errors.Is(err, config.ErrBackupCorrupt) {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			} else {
+				slog.Error("Failed to restore config backup", slogutil.Error(err))
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
+		}
+		c.finish(w, waiter)
 	})
 }
 

@@ -318,6 +318,7 @@ func (s *service) Serve(ctx context.Context) error {
 	configBuilder.registerConfig("/rest/config")
 	configBuilder.registerConfigInsync("/rest/config/insync") // deprecated
 	configBuilder.registerConfigRequiresRestart("/rest/config/restart-required")
+	configBuilder.registerConfigBackups("/rest/config/backups")
 	configBuilder.registerFolders("/rest/config/folders")
 	configBuilder.registerDevices("/rest/config/devices")
 	configBuilder.registerFolder("/rest/config/folders/:id")
@@ -1066,6 +1067,9 @@ func (s *service) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 	res["startTime"] = ur.StartTime
 	res["guiAddressOverridden"] = s.cfg.GUI().IsOverridden()
 	res["guiAddressUsed"] = s.listenerAddr.String()
+	if rollback := s.cfg.RollbackInfo(); rollback != nil {
+		res["configRollback"] = rollback
+	}
 
 	sendJSON(w, res)
 }

@@ -891,6 +891,18 @@ accept already hashed passwords.  Any valid bcrypt hash is stored verbatim,
 while a plaintext password is first hashed.
 .UNINDENT
 .UNINDENT
+.SS /rest/config/backups
+.sp
+\fBGET\fP returns the available automatic configuration backup generations,
+newest first, as an array of objects with \fBgeneration\fP, \fBtime\fP and
+\fBparseable\fP attributes (the latter indicating whether the backup can be
+parsed as a configuration, with an \fBerror\fP attribute when it cannot).
+.SS POST /rest/config/backups/*generation*/restore
+.sp
+Restores the given configuration backup generation as the main config. The
+current config is backed up first, so the rollback itself can be undone. The
+restored configuration goes through the normal config change pipeline and may
+require a restart.
 .SH CLUSTER ENDPOINTS
 .sp
 Concerns the mesh network structure.

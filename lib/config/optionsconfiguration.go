@@ -65,8 +65,11 @@ type OptionsConfiguration struct {
 	AnnounceLANAddresses        bool     `json:"announceLANAddresses" xml:"announceLANAddresses" default:"true"`
 	SendFullIndexOnUpgrade      bool     `json:"sendFullIndexOnUpgrade" xml:"sendFullIndexOnUpgrade"`
 	FeatureFlags                []string `json:"featureFlags" xml:"featureFlag"`
-	AuditEnabled                bool     `json:"auditEnabled" xml:"auditEnabled" default:"false" restart:"true"`
-	AuditFile                   string   `json:"auditFile" xml:"auditFile" restart:"true"`
+	// KeepConfigBackups is the number of past generations of the config
+	// file to automatically keep as backups. Zero disables config backups.
+	KeepConfigBackups int    `json:"keepConfigBackups" xml:"keepConfigBackups" default:"3"`
+	AuditEnabled      bool   `json:"auditEnabled" xml:"auditEnabled" default:"false" restart:"true"`
+	AuditFile         string `json:"auditFile" xml:"auditFile" restart:"true"`
 	// The number of connections at which we stop trying to connect to more
 	// devices, zero meaning no limit. Does not affect incoming connections.
 	ConnectionLimitEnough int `json:"connectionLimitEnough" xml:"connectionLimitEnough"`
@@ -129,6 +132,14 @@ func (opts *OptionsConfiguration) prepare(guiPWIsSet bool) {
 	}
 	if opts.ConnectionLimitMax < 0 {
 		opts.ConnectionLimitMax = 0
+	}
+
+	// Config backups are either disabled (zero) or limited to a sane
+	// maximum number of generations.
+	if opts.KeepConfigBackups < 0 {
+		opts.KeepConfigBackups = 0
+	} else if opts.KeepConfigBackups > MaxKeepConfigBackups {
+		opts.KeepConfigBackups = MaxKeepConfigBackups
 	}
 
 	if opts.ConnectionPriorityQUICWAN <= opts.ConnectionPriorityQUICLAN {

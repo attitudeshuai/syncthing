@@ -1808,6 +1808,96 @@ func TestConfigChanges(t *testing.T) {
 	}
 }
 
+func TestConfigBackups(t *testing.T) {
+	t.Parallel()
+
+	const testAPIKey = "foobarbaz"
+	cfg := config.Configuration{
+		GUI: config.GUIConfiguration{
+			RawAddress: "127.0.0.1:0",
+			RawUseTLS:  false,
+			APIKey:     testAPIKey,
+		},
+	}
+	tmpFile, err := os.CreateTemp("", "syncthing-testConfigBackups-")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer os.RemoveAll(tmpFile.Name() + ".backups")
+	w := config.Wrap(tmpFile.Name(), cfg, protocol.LocalDeviceID, events.NoopLogger)
+	tmpFile.Close()
+	cfgCtx, cfgCancel := context.WithCancel(context.Background())
+	go w.Serve(cfgCtx)
+	defer cfgCancel()
+	baseURL := startHTTP(t, w)
+
+	cli := &http.Client{Timeout: time.Minute}
+
+	request := func(method, path string, status int) *http.Response {
+		t.Helper()
+		req, _ := http.NewRequest(method, baseURL+path, nil)
+		req.Header.Set("X-API-Key", testAPIKey)
+		resp, err := cli.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != status {
+			t.Errorf("Expected status %v for %s %s, got %v", status, method, path, resp.StatusCode)
+		}
+		return resp
+	}
+
+	// Enable backups; the resulting save creates generation 1.
+	bs, _ := json.Marshal(map[string]int{"keepConfigBackups": 2})
+	req, _ := http.NewRequest(http.MethodPatch, baseURL+"/rest/config/options", bytes.NewReader(bs))
+	req.Header.Set("X-API-Key", testAPIKey)
+	resp, err := cli.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected 200 enabling backups, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = request(http.MethodGet, "/rest/config/backups", http.StatusOK)
+	var backups []config.BackupInfo
+	if err := unmarshalTo(resp.Body, &backups); err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 1 || !backups[0].Parseable || backups[0].Generation != 1 {
+		t.Fatalf("unexpected backup list: %+v", backups)
+	}
+
+	// Invalid generation identifiers are bad requests.
+	request(http.MethodPost, "/rest/config/backups/notanint/restore", http.StatusBadRequest).Body.Close()
+	request(http.MethodPost, "/rest/config/backups/99/restore", http.StatusBadRequest).Body.Close()
+
+	// Restoring generation 1 succeeds and is recorded in system status.
+	request(http.MethodPost, "/rest/config/backups/1/restore", http.StatusOK).Body.Close()
+
+	resp = request(http.MethodGet, "/rest/system/status", http.StatusOK)
+	var status map[string]json.RawMessage
+	if err := unmarshalTo(resp.Body, &status); err != nil {
+		t.Fatal(err)
+	}
+	raw, ok := status["configRollback"]
+	if !ok {
+		t.Fatal("expected configRollback in system status after rollback")
+	}
+	var rollback struct {
+		Generation int    `json:"generation"`
+		Trigger    string `json:"trigger"`
+	}
+	if err := json.Unmarshal(raw, &rollback); err != nil {
+		t.Fatal(err)
+	}
+	if rollback.Generation != 1 || rollback.Trigger != config.RollbackTriggerManual {
+		t.Errorf("unexpected rollback status: %+v", rollback)
+	}
+}
+
 func TestSanitizedHostname(t *testing.T) {
 	cases := []struct {
 		in, out string

@@ -82,12 +82,13 @@ func DefaultConfig(path string, myID protocol.DeviceID, evLogger events.Logger, 
 }
 
 // LoadConfigAtStartup loads an existing config. If it doesn't yet exist, it
-// creates a default one. Otherwise it checks the version, and archives and
-// upgrades the config if necessary or returns an error, if the version
-// isn't compatible.
+// creates a default one. If the config is corrupt or truncated it is
+// automatically restored from the newest usable backup generation. Otherwise
+// it checks the version, and archives and upgrades the config if necessary
+// or returns an error, if the version isn't compatible.
 func LoadConfigAtStartup(path string, cert tls.Certificate, evLogger events.Logger, allowNewerConfig, skipPortProbing bool) (config.Wrapper, error) {
 	myID := protocol.NewDeviceID(cert.Certificate[0])
-	cfg, originalVersion, err := config.Load(path, myID, evLogger)
+	cfg, originalVersion, err := config.LoadOrFallback(path, myID, evLogger, allowNewerConfig)
 	if fs.IsNotExist(err) {
 		cfg, err = DefaultConfig(path, myID, evLogger, skipPortProbing)
 		if err != nil {

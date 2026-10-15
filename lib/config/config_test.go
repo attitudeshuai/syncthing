@@ -90,6 +90,7 @@ func TestDefaultValues(t *testing.T) {
 			RawStunServers:            []string{"default"},
 			AnnounceLANAddresses:      true,
 			FeatureFlags:              []string{},
+			KeepConfigBackups:         3,
 			AuditEnabled:              false,
 			AuditFile:                 "",
 			ConnectionPriorityTCPLAN:  10,

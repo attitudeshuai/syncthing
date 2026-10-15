@@ -9,8 +9,10 @@
 package config
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"reflect"
@@ -96,6 +98,18 @@ type Wrapper interface {
 	RequiresRestart() bool
 	Save() error
 
+	// Backups returns the available config backup generations, newest
+	// first.
+	Backups() []BackupInfo
+	// RestoreBackup restores the given backup generation as the main
+	// config and takes it through the normal config change pipeline. The
+	// current config is backed up first, so the rollback itself can be
+	// undone.
+	RestoreBackup(generation int) (Waiter, error)
+	// RollbackInfo returns information about the backup rollback the
+	// active configuration was loaded through, or nil.
+	RollbackInfo() *RollbackInfo
+
 	Modify(ModifyFunction) (Waiter, error)
 	RemoveFolder(id string) (Waiter, error)
 	RemoveDevice(id protocol.DeviceID) (Waiter, error)
@@ -136,6 +150,10 @@ type wrapper struct {
 	waiter Waiter // Latest ongoing config change
 	subs   []Committer
 	mut    sync.Mutex
+
+	// rollback is set when the active configuration was loaded from a
+	// backup generation.
+	rollback *RollbackInfo
 
 	requiresRestart atomic.Bool
 }
@@ -504,7 +522,10 @@ func (w *wrapper) Folder(id string) (FolderConfiguration, bool) {
 func (w *wrapper) Save() error {
 	w.mut.Lock()
 	defer w.mut.Unlock()
+	return w.saveLocked()
+}
 
+func (w *wrapper) saveLocked() error {
 	fd, err := osutil.CreateAtomic(w.path)
 	if err != nil {
 		l.Debugln("CreateAtomic:", err)
@@ -523,7 +544,128 @@ func (w *wrapper) Save() error {
 	}
 
 	w.evLogger.Log(events.ConfigSaved, w.cfg)
+
+	w.backupLocked()
 	return nil
+}
+
+// writeConfigLocked serializes the in-memory configuration to the main
+// config file without events or backup handling.
+func (w *wrapper) writeConfigLocked() error {
+	fd, err := osutil.CreateAtomic(w.path)
+	if err != nil {
+		return err
+	}
+	if err := w.cfg.WriteXML(osutil.LineEndingsWriter(fd)); err != nil {
+		fd.Close()
+		return err
+	}
+	return fd.Close()
+}
+
+// backupLocked keeps a generation copy of the just-written main config.
+// Backup failures are logged but never affect the main save. When backups
+// are disabled (or there is no config file) this is a no-op, so saving is
+// identical to saving without backups enabled.
+func (w *wrapper) backupLocked() {
+	if w.path == "" || w.cfg.Options.KeepConfigBackups == 0 {
+		return
+	}
+	data, err := os.ReadFile(w.path)
+	if err != nil {
+		slog.Warn("Failed to read saved config for backup", slogutil.Error(err))
+		return
+	}
+	if err := writeBackupFile(w.path, data, w.cfg.Options.KeepConfigBackups); err != nil {
+		slog.Warn("Failed to back up config", slogutil.Error(err))
+	}
+}
+
+func (w *wrapper) Backups() []BackupInfo {
+	if w.path == "" {
+		return nil
+	}
+	files := listBackupFiles(w.path)
+	infos := make([]BackupInfo, 0, len(files))
+	for _, b := range files {
+		infos = append(infos, inspectBackup(b, w.myID))
+	}
+	return infos
+}
+
+func (w *wrapper) RollbackInfo() *RollbackInfo {
+	w.mut.Lock()
+	defer w.mut.Unlock()
+	if w.rollback == nil {
+		return nil
+	}
+	cp := *w.rollback
+	return &cp
+}
+
+// RestoreBackup implements the Wrapper interface; see its documentation.
+func (w *wrapper) RestoreBackup(generation int) (Waiter, error) {
+	w.mut.Lock()
+	waiter, err := w.restoreBackupLocked(generation)
+	w.mut.Unlock()
+	if err != nil {
+		return noopWaiter{}, err
+	}
+	return waiter, nil
+}
+
+func (w *wrapper) restoreBackupLocked(generation int) (Waiter, error) {
+	if w.path == "" {
+		return noopWaiter{}, errors.New("configuration is not backed by a file")
+	}
+
+	var target backupFile
+	for _, b := range listBackupFiles(w.path) {
+		if b.generation == generation {
+			target = b
+			break
+		}
+	}
+	if target.path == "" {
+		return noopWaiter{}, fmt.Errorf("%w: generation %d", ErrBackupNotFound, generation)
+	}
+
+	data, err := os.ReadFile(target.path)
+	if err != nil {
+		return noopWaiter{}, err
+	}
+	to, _, err := ReadXML(bytes.NewReader(data), w.myID)
+	if err != nil {
+		return noopWaiter{}, fmt.Errorf("%w: generation %d: %w", ErrBackupCorrupt, generation, err)
+	}
+
+	// Keep a generation copy of the current config before overwriting it,
+	// so the rollback itself can be undone.
+	w.backupLocked()
+
+	if err := writeAtomic(w.path, data); err != nil {
+		return noopWaiter{}, fmt.Errorf("restore config backup: %w", err)
+	}
+
+	// Take the restored configuration through the same verification and
+	// notification pipeline as any other configuration change, i.e. a
+	// normal load. If it is rejected, put the still-active configuration
+	// back on disk to keep file and runtime state consistent.
+	waiter, err := w.replaceLocked(to)
+	if err != nil {
+		if werr := w.writeConfigLocked(); werr != nil {
+			slog.Warn("Failed to restore config file after rejected rollback", slogutil.Error(werr))
+		}
+		return noopWaiter{}, err
+	}
+
+	w.rollback = &RollbackInfo{
+		Time:       time.Now(),
+		Generation: generation,
+		Trigger:    RollbackTriggerManual,
+	}
+	slog.Warn("Restored config from backup generation", slog.Int("generation", generation), slogutil.FilePath(w.path))
+	return waiter, nil
 }
 
 func (w *wrapper) RequiresRestart() bool { return w.requiresRestart.Load() }

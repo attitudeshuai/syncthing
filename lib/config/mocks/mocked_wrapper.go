@@ -10,6 +10,39 @@ import (
 )
 
 type Wrapper struct {
+	BackupsStub        func() []config.BackupInfo
+	backupsMutex       sync.RWMutex
+	backupsArgsForCall []struct {
+	}
+	backupsReturns struct {
+		result1 []config.BackupInfo
+	}
+	backupsReturnsOnCall map[int]struct {
+		result1 []config.BackupInfo
+	}
+	RestoreBackupStub        func(generation int) (config.Waiter, error)
+	restoreBackupMutex       sync.RWMutex
+	restoreBackupArgsForCall []struct {
+		arg1 int
+	}
+	restoreBackupReturns struct {
+		result1 config.Waiter
+		result2 error
+	}
+	restoreBackupReturnsOnCall map[int]struct {
+		result1 config.Waiter
+		result2 error
+	}
+	RollbackInfoStub        func() *config.RollbackInfo
+	rollbackInfoMutex       sync.RWMutex
+	rollbackInfoArgsForCall []struct {
+	}
+	rollbackInfoReturns struct {
+		result1 *config.RollbackInfo
+	}
+	rollbackInfoReturnsOnCall map[int]struct {
+		result1 *config.RollbackInfo
+	}
 	ConfigPathStub        func() string
 	configPathMutex       sync.RWMutex
 	configPathArgsForCall []struct {
@@ -298,6 +331,169 @@ type Wrapper struct {
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
+}
+
+func (fake *Wrapper) Backups() []config.BackupInfo {
+	fake.backupsMutex.Lock()
+	ret, specificReturn := fake.backupsReturnsOnCall[len(fake.backupsArgsForCall)]
+	fake.backupsArgsForCall = append(fake.backupsArgsForCall, struct {
+	}{})
+	stub := fake.BackupsStub
+	fakeReturns := fake.backupsReturns
+	fake.recordInvocation("Backups", []interface{}{})
+	fake.backupsMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *Wrapper) BackupsCallCount() int {
+	fake.backupsMutex.RLock()
+	defer fake.backupsMutex.RUnlock()
+	return len(fake.backupsArgsForCall)
+}
+
+func (fake *Wrapper) BackupsCalls(stub func() []config.BackupInfo) {
+	fake.backupsMutex.Lock()
+	defer fake.backupsMutex.Unlock()
+	fake.BackupsStub = stub
+}
+
+func (fake *Wrapper) BackupsReturns(result1 []config.BackupInfo) {
+	fake.backupsMutex.Lock()
+	defer fake.backupsMutex.Unlock()
+	fake.BackupsStub = nil
+	fake.backupsReturns = struct {
+		result1 []config.BackupInfo
+	}{result1}
+}
+
+func (fake *Wrapper) BackupsReturnsOnCall(i int, result1 []config.BackupInfo) {
+	fake.backupsMutex.Lock()
+	defer fake.backupsMutex.Unlock()
+	fake.BackupsStub = nil
+	if fake.backupsReturnsOnCall == nil {
+		fake.backupsReturnsOnCall = make(map[int]struct {
+			result1 []config.BackupInfo
+		})
+	}
+	fake.backupsReturnsOnCall[i] = struct {
+		result1 []config.BackupInfo
+	}{result1}
+}
+
+func (fake *Wrapper) RestoreBackup(arg1 int) (config.Waiter, error) {
+	fake.restoreBackupMutex.Lock()
+	ret, specificReturn := fake.restoreBackupReturnsOnCall[len(fake.restoreBackupArgsForCall)]
+	fake.restoreBackupArgsForCall = append(fake.restoreBackupArgsForCall, struct {
+		arg1 int
+	}{arg1})
+	stub := fake.RestoreBackupStub
+	fakeReturns := fake.restoreBackupReturns
+	fake.recordInvocation("RestoreBackup", []interface{}{arg1})
+	fake.restoreBackupMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *Wrapper) RestoreBackupCallCount() int {
+	fake.restoreBackupMutex.RLock()
+	defer fake.restoreBackupMutex.RUnlock()
+	return len(fake.restoreBackupArgsForCall)
+}
+
+func (fake *Wrapper) RestoreBackupCalls(stub func(generation int) (config.Waiter, error)) {
+	fake.restoreBackupMutex.Lock()
+	defer fake.restoreBackupMutex.Unlock()
+	fake.RestoreBackupStub = stub
+}
+
+func (fake *Wrapper) RestoreBackupReturns(result1 config.Waiter, result2 error) {
+	fake.restoreBackupMutex.Lock()
+	defer fake.restoreBackupMutex.Unlock()
+	fake.RestoreBackupStub = nil
+	fake.restoreBackupReturns = struct {
+		result1 config.Waiter
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *Wrapper) RestoreBackupReturnsOnCall(i int, result1 config.Waiter, result2 error) {
+	fake.restoreBackupMutex.Lock()
+	defer fake.restoreBackupMutex.Unlock()
+	fake.RestoreBackupStub = nil
+	if fake.restoreBackupReturnsOnCall == nil {
+		fake.restoreBackupReturnsOnCall = make(map[int]struct {
+			result1 config.Waiter
+			result2 error
+		})
+	}
+	fake.restoreBackupReturnsOnCall[i] = struct {
+		result1 config.Waiter
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *Wrapper) RollbackInfo() *config.RollbackInfo {
+	fake.rollbackInfoMutex.Lock()
+	ret, specificReturn := fake.rollbackInfoReturnsOnCall[len(fake.rollbackInfoArgsForCall)]
+	fake.rollbackInfoArgsForCall = append(fake.rollbackInfoArgsForCall, struct {
+	}{})
+	stub := fake.RollbackInfoStub
+	fakeReturns := fake.rollbackInfoReturns
+	fake.recordInvocation("RollbackInfo", []interface{}{})
+	fake.rollbackInfoMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *Wrapper) RollbackInfoCallCount() int {
+	fake.rollbackInfoMutex.RLock()
+	defer fake.rollbackInfoMutex.RUnlock()
+	return len(fake.rollbackInfoArgsForCall)
+}
+
+func (fake *Wrapper) RollbackInfoCalls(stub func() *config.RollbackInfo) {
+	fake.rollbackInfoMutex.Lock()
+	defer fake.rollbackInfoMutex.Unlock()
+	fake.RollbackInfoStub = stub
+}
+
+func (fake *Wrapper) RollbackInfoReturns(result1 *config.RollbackInfo) {
+	fake.rollbackInfoMutex.Lock()
+	defer fake.rollbackInfoMutex.Unlock()
+	fake.RollbackInfoStub = nil
+	fake.rollbackInfoReturns = struct {
+		result1 *config.RollbackInfo
+	}{result1}
+}
+
+func (fake *Wrapper) RollbackInfoReturnsOnCall(i int, result1 *config.RollbackInfo) {
+	fake.rollbackInfoMutex.Lock()
+	defer fake.rollbackInfoMutex.Unlock()
+	fake.RollbackInfoStub = nil
+	if fake.rollbackInfoReturnsOnCall == nil {
+		fake.rollbackInfoReturnsOnCall = make(map[int]struct {
+			result1 *config.RollbackInfo
+		})
+	}
+	fake.rollbackInfoReturnsOnCall[i] = struct {
+		result1 *config.RollbackInfo
+	}{result1}
 }
 
 func (fake *Wrapper) ConfigPath() string {

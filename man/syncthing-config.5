@@ -220,6 +220,7 @@ may no longer correspond to the defaults.
         <maxConcurrentIncomingRequestKiB>0</maxConcurrentIncomingRequestKiB>
         <announceLANAddresses>true</announceLANAddresses>
         <sendFullIndexOnUpgrade>false</sendFullIndexOnUpgrade>
+        <keepConfigBackups>3</keepConfigBackups>
         <connectionLimitEnough>0</connectionLimitEnough>
         <connectionLimitMax>0</connectionLimitMax>
     </options>
@@ -1225,6 +1226,7 @@ Search filter for user searches.
     <maxConcurrentIncomingRequestKiB>0</maxConcurrentIncomingRequestKiB>
     <announceLANAddresses>true</announceLANAddresses>
     <sendFullIndexOnUpgrade>false</sendFullIndexOnUpgrade>
+    <keepConfigBackups>3</keepConfigBackups>
     <connectionLimitEnough>0</connectionLimitEnough>
     <connectionLimitMax>0</connectionLimitMax>
 </options>
@@ -1533,6 +1535,17 @@ testing.  Any supported value will be separately announced with the feature,
 so that regular users do not enable it by accident.  To configure multiple
 flags, you can either: repeat \fB<featureFlag>\fP tags in the configuration
 file or enter several flags separated by commas in the GUI.
+.UNINDENT
+.INDENT 0.0
+.TP
+.B keepConfigBackups
+The number of generations of the configuration file to automatically keep
+as backups. A backup copy is written every time the configuration is saved
+and generations beyond this number are removed, oldest first. When the main
+configuration cannot be parsed at startup, Syncthing restores the newest
+usable backup generation automatically and records that fact in the log and
+system status. Backups never participate in the sync protocol. Set to zero
+to disable configuration backups. Defaults to \fB3\fP\&.
 .UNINDENT
 .INDENT 0.0
 .TP
