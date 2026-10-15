@@ -96,6 +96,12 @@ type Model interface {
 	GetFolderVersions(folder string) (map[string][]versioner.FileVersion, error)
 	RestoreFolderVersions(folder string, versions map[string]time.Time) (map[string]error, error)
 
+	StartEncryptionPasswordRotation(folderID, newPassword string) error
+	CompleteEncryptionPasswordRotation(folderID string) error
+	CancelEncryptionPasswordRotation(folderID string) error
+	EncryptionPasswordRotationStatus(folderID string) (EncryptionPasswordRotationStatus, error)
+	EncryptionPasswordRotationStatuses() map[string]EncryptionPasswordRotationStatus
+
 	LocalFiles(folder string, device protocol.DeviceID) (iter.Seq[protocol.FileInfo], func() error)
 	LocalFilesSequenced(folder string, device protocol.DeviceID, startSet int64) (iter.Seq[protocol.FileInfo], func() error)
 	LocalSize(folder string, device protocol.DeviceID) (db.Counts, error)
@@ -167,6 +173,7 @@ type model struct {
 	folderVersioners               map[string]versioner.Versioner                         // folder -> versioner (may be nil)
 	folderEncryptionPasswordTokens map[string][]byte                                      // folder -> encryption token (may be missing, and only for encryption type folders)
 	folderEncryptionFailures       map[string]map[protocol.DeviceID]error                 // folder -> device -> error regarding encryption consistency (may be missing)
+	folderSupersededPasswordTokens map[string][]byte                                      // folder -> token of the password that was rotated out (in-memory, to distinguish stale peers after completing a rotation)
 	connections                    map[string]protocol.Connection                         // connection ID -> connection
 	deviceConnIDs                  map[protocol.DeviceID][]string                         // device -> connection IDs (invariant: if the key exists, the value is len >= 1, with the primary connection at the start of the slice)
 	promotedConnID                 map[protocol.DeviceID]string                           // device -> latest promoted connection ID
@@ -203,6 +210,7 @@ var (
 	errEncryptionPlainForRemoteEncrypted  = errors.New("remote expects to exchange plain data, but local data is encrypted (folder-type receive-encrypted)")
 	errEncryptionNotEncryptedUntrusted    = errors.New("device is untrusted, but configured to receive plain data")
 	errEncryptionPassword                 = errors.New("different encryption passwords used")
+	errEncryptionPasswordOutdated         = errors.New("different encryption passwords used: peer still authenticates with the password that was rotated out")
 	errEncryptionTokenRead                = errors.New("failed to read encryption token")
 	errEncryptionTokenWrite               = errors.New("failed to write encryption token")
 	errMissingRemoteInClusterConfig       = errors.New("remote device missing in cluster config")
@@ -243,6 +251,7 @@ func NewModel(cfg config.Wrapper, id protocol.DeviceID, sdb db.DB, protectedFile
 		folderVersioners:               make(map[string]versioner.Versioner),
 		folderEncryptionPasswordTokens: make(map[string][]byte),
 		folderEncryptionFailures:       make(map[string]map[protocol.DeviceID]error),
+		folderSupersededPasswordTokens: make(map[string][]byte),
 		connections:                    make(map[string]protocol.Connection),
 		deviceConnIDs:                  make(map[protocol.DeviceID][]string),
 		promotedConnID:                 make(map[protocol.DeviceID]string),
@@ -507,6 +516,7 @@ func (m *model) cleanupFolderLocked(cfg config.FolderConfiguration) {
 	delete(m.folderVersioners, cfg.ID)
 	delete(m.folderEncryptionPasswordTokens, cfg.ID)
 	delete(m.folderEncryptionFailures, cfg.ID)
+	delete(m.folderSupersededPasswordTokens, cfg.ID)
 }
 
 func (m *model) restartFolder(from, to config.FolderConfiguration) error {
@@ -1562,18 +1572,45 @@ func (m *model) ccCheckEncryption(fcfg config.FolderConfiguration, folderDevice 
 	}
 
 	if isEncryptedRemote {
-		passwordToken := protocol.PasswordToken(m.keyGen, fcfg.ID, folderDevice.EncryptionPassword)
-		var match bool
+		currentPasswordToken := protocol.PasswordToken(m.keyGen, fcfg.ID, folderDevice.EncryptionPassword)
+		var ccToken []byte
 		if hasTokenLocal {
-			match = bytes.Equal(passwordToken, ccDeviceInfos.local.EncryptionPasswordToken)
+			ccToken = ccDeviceInfos.local.EncryptionPasswordToken
 		} else {
 			// hasTokenRemote == true
-			match = bytes.Equal(passwordToken, ccDeviceInfos.remote.EncryptionPasswordToken)
+			ccToken = ccDeviceInfos.remote.EncryptionPasswordToken
 		}
-		if !match {
-			return errEncryptionPassword
+
+		if bytes.Equal(currentPasswordToken, ccToken) {
+			if m.recordEncryptionPasswordRotationDevice(fcfg.ID, folderDevice.DeviceID, false) {
+				// Defensive: the device was previously on the new password
+				// but presented the current token, make sure its
+				// cluster-config matches what it uses.
+				m.sendClusterConfig([]protocol.DeviceID{folderDevice.DeviceID})
+			}
+			return nil
 		}
-		return nil
+
+		if fcfg.EncryptionPasswordRotation != nil {
+			// During a rotation both the current and the pending new
+			// password token are accepted.
+			newPasswordToken := protocol.PasswordToken(m.keyGen, fcfg.ID, fcfg.EncryptionPasswordRotation.NewPassword)
+			if bytes.Equal(newPasswordToken, ccToken) {
+				if m.recordEncryptionPasswordRotationDevice(fcfg.ID, folderDevice.DeviceID, true) {
+					// Resend the cluster-config to announce the new token
+					// and use the new data key on this connection.
+					m.sendClusterConfig([]protocol.DeviceID{folderDevice.DeviceID})
+				}
+				return nil
+			}
+		} else if oldToken, ok := m.supersededEncryptionToken(fcfg.ID); ok && bytes.Equal(oldToken, ccToken) {
+			// A rotation was completed (in this running process) and the
+			// peer is still presenting the old password token. Keep this
+			// distinguishable from a generic password mismatch.
+			return errEncryptionPasswordOutdated
+		}
+
+		return errEncryptionPassword
 	}
 
 	// isEncryptedLocal == true
@@ -2631,8 +2668,17 @@ func (m *model) generateClusterConfigRLocked(device protocol.DeviceID) (*protoco
 				// don't want things like the introducer features to kick in
 				// for them.
 				if folderDevice.DeviceID == device {
-					protocolDevice.EncryptionPasswordToken = protocol.PasswordToken(m.keyGen, folderCfg.ID, folderDevice.EncryptionPassword)
-					passwords[folderCfg.ID] = folderDevice.EncryptionPassword
+					// During an encryption password rotation, peers that
+					// have already authenticated with the new password get
+					// the new token (and data key); everyone else keeps
+					// getting the current one so existing peers stay
+					// connected throughout the transition.
+					password := folderDevice.EncryptionPassword
+					if rotation := folderCfg.EncryptionPasswordRotation; rotation != nil && slices.Contains(rotation.RotatedDevices, folderDevice.DeviceID) {
+						password = rotation.NewPassword
+					}
+					protocolDevice.EncryptionPasswordToken = protocol.PasswordToken(m.keyGen, folderCfg.ID, password)
+					passwords[folderCfg.ID] = password
 				} else {
 					continue nextDevice
 				}

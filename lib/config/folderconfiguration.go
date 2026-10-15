@@ -46,48 +46,151 @@ type FolderDeviceConfiguration struct {
 	EncryptionPassword string            `json:"encryptionPassword" xml:"encryptionPassword"`
 }
 
+// EncryptionPasswordRotationState describes whether a peer has been observed
+// using the current (old) or the pending (new) encryption password token
+// during a password rotation transition.
+type EncryptionPasswordRotationState string
+
+const (
+	// EncryptionPasswordRotationStateUnseen means the device has not
+	// connected (with a verifiable token) since the rotation started.
+	EncryptionPasswordRotationStateUnseen EncryptionPasswordRotationState = "unseen"
+	// EncryptionPasswordRotationStateOld means the device has connected
+	// with a token derived from the current (old) password.
+	EncryptionPasswordRotationStateOld EncryptionPasswordRotationState = "old"
+	// EncryptionPasswordRotationStateNew means the device has connected
+	// with a token derived from the pending (new) password.
+	EncryptionPasswordRotationStateNew EncryptionPasswordRotationState = "new"
+)
+
+// EncryptionPasswordRotation tracks an in-progress rolling rotation of the
+// encryption password of a folder shared with untrusted (receive-encrypted)
+// devices. While set, both the password configured on the folder devices and
+// NewPassword are accepted on incoming connections. The lists record which
+// devices have been observed using which password, so that the rotation can
+// be completed only once every paired device has presented a token derived
+// from the new password.
+type EncryptionPasswordRotation struct {
+	// NewPassword is the password being rotated to. It is not in effect
+	// until the rotation is completed.
+	NewPassword string `json:"newPassword" xml:"newPassword"`
+	// StartedAt is the time at which the rotation was initiated.
+	StartedAt time.Time `json:"startedAt" xml:"startedAt"`
+	// RotatedDevices are the devices that have connected with a token
+	// derived from NewPassword.
+	RotatedDevices []protocol.DeviceID `json:"rotatedDevices" xml:"rotatedDevices>device,omitempty"`
+	// OldDevices are the devices that have connected with a token derived
+	// from the current (old) password since the rotation started.
+	OldDevices []protocol.DeviceID `json:"oldDevices" xml:"oldDevices>device,omitempty"`
+}
+
+// Copy returns a deep copy of the rotation state.
+func (r *EncryptionPasswordRotation) Copy() *EncryptionPasswordRotation {
+	if r == nil {
+		return nil
+	}
+	c := &EncryptionPasswordRotation{
+		NewPassword: r.NewPassword,
+		StartedAt:   r.StartedAt,
+	}
+	c.RotatedDevices = append([]protocol.DeviceID(nil), r.RotatedDevices...)
+	c.OldDevices = append([]protocol.DeviceID(nil), r.OldDevices...)
+	return c
+}
+
+// DeviceState returns the rotation state recorded for the given device.
+func (r *EncryptionPasswordRotation) DeviceState(device protocol.DeviceID) EncryptionPasswordRotationState {
+	if slices.Contains(r.RotatedDevices, device) {
+		return EncryptionPasswordRotationStateNew
+	}
+	if slices.Contains(r.OldDevices, device) {
+		return EncryptionPasswordRotationStateOld
+	}
+	return EncryptionPasswordRotationStateUnseen
+}
+
+// RecordDevice records that the given device was last observed using the new
+// (useNew is true) or the old (useNew is false) password token. It returns
+// true when the recorded state for the device changed.
+func (r *EncryptionPasswordRotation) RecordDevice(device protocol.DeviceID, useNew bool) bool {
+	target := &r.OldDevices
+	other := &r.RotatedDevices
+	if useNew {
+		target, other = &r.RotatedDevices, &r.OldDevices
+	}
+
+	changed := false
+	if i := slices.Index(*other, device); i >= 0 {
+		*other = slices.Delete(*other, i, i+1)
+		changed = true
+	}
+	if !slices.Contains(*target, device) {
+		*target = append(*target, device)
+		changed = true
+	}
+	return changed
+}
+
+// PruneDevices removes devices that are not in the valid set, sorts the
+// remaining device lists and drops duplicates.
+func (r *EncryptionPasswordRotation) PruneDevices(valid map[protocol.DeviceID]struct{}) {
+	prune := func(devices []protocol.DeviceID) []protocol.DeviceID {
+		out := devices[:0]
+		for _, dev := range devices {
+			if _, ok := valid[dev]; ok && !slices.Contains(out, dev) {
+				out = append(out, dev)
+			}
+		}
+		slices.SortFunc(out, func(a, b protocol.DeviceID) int { return a.Compare(b) })
+		return out
+	}
+	r.RotatedDevices = prune(r.RotatedDevices)
+	r.OldDevices = prune(r.OldDevices)
+}
+
 type FolderConfiguration struct {
-	ID                      string                      `json:"id" xml:"id,attr" nodefault:"true"`
-	Label                   string                      `json:"label" xml:"label,attr" restart:"false"`
-	FilesystemType          FilesystemType              `json:"filesystemType" xml:"filesystemType" default:"basic"`
-	Path                    string                      `json:"path" xml:"path,attr"`
-	Type                    FolderType                  `json:"type" xml:"type,attr"`
-	Devices                 []FolderDeviceConfiguration `json:"devices" xml:"device"`
-	Group                   string                      `json:"group" xml:"group,attr,omitempty" restart:"false"`
-	RescanIntervalS         int                         `json:"rescanIntervalS" xml:"rescanIntervalS,attr" default:"3600"`
-	FSWatcherEnabled        bool                        `json:"fsWatcherEnabled" xml:"fsWatcherEnabled,attr" default:"true"`
-	FSWatcherDelayS         float64                     `json:"fsWatcherDelayS" xml:"fsWatcherDelayS,attr" default:"10"`
-	FSWatcherTimeoutS       float64                     `json:"fsWatcherTimeoutS" xml:"fsWatcherTimeoutS,attr"`
-	IgnorePerms             bool                        `json:"ignorePerms" xml:"ignorePerms,attr"`
-	AutoNormalize           bool                        `json:"autoNormalize" xml:"autoNormalize,attr" default:"true"`
-	MinDiskFree             Size                        `json:"minDiskFree" xml:"minDiskFree" default:"1 %"`
-	Versioning              VersioningConfiguration     `json:"versioning" xml:"versioning"`
-	Copiers                 int                         `json:"copiers" xml:"copiers"`
-	PullerMaxPendingKiB     int                         `json:"pullerMaxPendingKiB" xml:"pullerMaxPendingKiB"`
-	Hashers                 int                         `json:"hashers" xml:"hashers"`
-	Order                   PullOrder                   `json:"order" xml:"order"`
-	IgnoreDelete            bool                        `json:"ignoreDelete" xml:"ignoreDelete"`
-	ScanProgressIntervalS   int                         `json:"scanProgressIntervalS" xml:"scanProgressIntervalS"`
-	PullerPauseS            int                         `json:"pullerPauseS" xml:"pullerPauseS"`
-	PullerDelayS            float64                     `json:"pullerDelayS" xml:"pullerDelayS" default:"1"`
-	MaxConflicts            int                         `json:"maxConflicts" xml:"maxConflicts" default:"10"`
-	DisableSparseFiles      bool                        `json:"disableSparseFiles" xml:"disableSparseFiles"`
-	Paused                  bool                        `json:"paused" xml:"paused"`
-	MarkerName              string                      `json:"markerName" xml:"markerName"`
-	CopyOwnershipFromParent bool                        `json:"copyOwnershipFromParent" xml:"copyOwnershipFromParent"`
-	RawModTimeWindowS       int                         `json:"modTimeWindowS" xml:"modTimeWindowS"`
-	MaxConcurrentWrites     int                         `json:"maxConcurrentWrites" xml:"maxConcurrentWrites" default:"0"`
-	DisableFsync            bool                        `json:"disableFsync" xml:"disableFsync"`
-	BlockPullOrder          BlockPullOrder              `json:"blockPullOrder" xml:"blockPullOrder"`
-	CopyRangeMethod         CopyRangeMethod             `json:"copyRangeMethod" xml:"copyRangeMethod" default:"standard"`
-	CaseSensitiveFS         bool                        `json:"caseSensitiveFS" xml:"caseSensitiveFS"`
-	JunctionsAsDirs         bool                        `json:"junctionsAsDirs" xml:"junctionsAsDirs"`
-	SyncOwnership           bool                        `json:"syncOwnership" xml:"syncOwnership"`
-	SendOwnership           bool                        `json:"sendOwnership" xml:"sendOwnership"`
-	SyncXattrs              bool                        `json:"syncXattrs" xml:"syncXattrs"`
-	SendXattrs              bool                        `json:"sendXattrs" xml:"sendXattrs"`
-	BlockIndexing           bool                        `json:"blockIndexing" xml:"blockIndexing" default:"true"`
-	XattrFilter             XattrFilter                 `json:"xattrFilter" xml:"xattrFilter"`
+	ID                         string                      `json:"id" xml:"id,attr" nodefault:"true"`
+	Label                      string                      `json:"label" xml:"label,attr" restart:"false"`
+	FilesystemType             FilesystemType              `json:"filesystemType" xml:"filesystemType" default:"basic"`
+	Path                       string                      `json:"path" xml:"path,attr"`
+	Type                       FolderType                  `json:"type" xml:"type,attr"`
+	Devices                    []FolderDeviceConfiguration `json:"devices" xml:"device"`
+	Group                      string                      `json:"group" xml:"group,attr,omitempty" restart:"false"`
+	RescanIntervalS            int                         `json:"rescanIntervalS" xml:"rescanIntervalS,attr" default:"3600"`
+	FSWatcherEnabled           bool                        `json:"fsWatcherEnabled" xml:"fsWatcherEnabled,attr" default:"true"`
+	FSWatcherDelayS            float64                     `json:"fsWatcherDelayS" xml:"fsWatcherDelayS,attr" default:"10"`
+	FSWatcherTimeoutS          float64                     `json:"fsWatcherTimeoutS" xml:"fsWatcherTimeoutS,attr"`
+	IgnorePerms                bool                        `json:"ignorePerms" xml:"ignorePerms,attr"`
+	AutoNormalize              bool                        `json:"autoNormalize" xml:"autoNormalize,attr" default:"true"`
+	MinDiskFree                Size                        `json:"minDiskFree" xml:"minDiskFree" default:"1 %"`
+	Versioning                 VersioningConfiguration     `json:"versioning" xml:"versioning"`
+	Copiers                    int                         `json:"copiers" xml:"copiers"`
+	PullerMaxPendingKiB        int                         `json:"pullerMaxPendingKiB" xml:"pullerMaxPendingKiB"`
+	Hashers                    int                         `json:"hashers" xml:"hashers"`
+	Order                      PullOrder                   `json:"order" xml:"order"`
+	IgnoreDelete               bool                        `json:"ignoreDelete" xml:"ignoreDelete"`
+	ScanProgressIntervalS      int                         `json:"scanProgressIntervalS" xml:"scanProgressIntervalS"`
+	PullerPauseS               int                         `json:"pullerPauseS" xml:"pullerPauseS"`
+	PullerDelayS               float64                     `json:"pullerDelayS" xml:"pullerDelayS" default:"1"`
+	MaxConflicts               int                         `json:"maxConflicts" xml:"maxConflicts" default:"10"`
+	DisableSparseFiles         bool                        `json:"disableSparseFiles" xml:"disableSparseFiles"`
+	Paused                     bool                        `json:"paused" xml:"paused"`
+	MarkerName                 string                      `json:"markerName" xml:"markerName"`
+	CopyOwnershipFromParent    bool                        `json:"copyOwnershipFromParent" xml:"copyOwnershipFromParent"`
+	RawModTimeWindowS          int                         `json:"modTimeWindowS" xml:"modTimeWindowS"`
+	MaxConcurrentWrites        int                         `json:"maxConcurrentWrites" xml:"maxConcurrentWrites" default:"0"`
+	DisableFsync               bool                        `json:"disableFsync" xml:"disableFsync"`
+	BlockPullOrder             BlockPullOrder              `json:"blockPullOrder" xml:"blockPullOrder"`
+	CopyRangeMethod            CopyRangeMethod             `json:"copyRangeMethod" xml:"copyRangeMethod" default:"standard"`
+	CaseSensitiveFS            bool                        `json:"caseSensitiveFS" xml:"caseSensitiveFS"`
+	JunctionsAsDirs            bool                        `json:"junctionsAsDirs" xml:"junctionsAsDirs"`
+	SyncOwnership              bool                        `json:"syncOwnership" xml:"syncOwnership"`
+	SendOwnership              bool                        `json:"sendOwnership" xml:"sendOwnership"`
+	SyncXattrs                 bool                        `json:"syncXattrs" xml:"syncXattrs"`
+	SendXattrs                 bool                        `json:"sendXattrs" xml:"sendXattrs"`
+	BlockIndexing              bool                        `json:"blockIndexing" xml:"blockIndexing" default:"true"`
+	XattrFilter                XattrFilter                 `json:"xattrFilter" xml:"xattrFilter"`
+	EncryptionPasswordRotation *EncryptionPasswordRotation `json:"encryptionPasswordRotation,omitempty" xml:"encryptionPasswordRotation,omitempty" restart:"false" nodefault:"true"`
 	// Legacy deprecated
 	DeprecatedReadOnly       bool    `json:"-" xml:"ro,attr,omitempty"`        // Deprecated: Do not use.
 	DeprecatedMinDiskFreePct float64 `json:"-" xml:"minDiskFreePct,omitempty"` // Deprecated: Do not use.
@@ -117,6 +220,7 @@ func (f FolderConfiguration) Copy() FolderConfiguration {
 	c.Devices = make([]FolderDeviceConfiguration, len(f.Devices))
 	copy(c.Devices, f.Devices)
 	c.Versioning = f.Versioning.Copy()
+	c.EncryptionPasswordRotation = f.EncryptionPasswordRotation.Copy()
 	return c
 }
 
@@ -276,6 +380,19 @@ func (f *FolderConfiguration) DeviceIDs() []protocol.DeviceID {
 	return deviceIDs
 }
 
+// EncryptionPasswordDevices returns the per-device entries that have an
+// encryption password set, i.e. the untrusted devices the folder data is
+// encrypted for.
+func (f FolderConfiguration) EncryptionPasswordDevices() []FolderDeviceConfiguration {
+	var devices []FolderDeviceConfiguration
+	for _, dev := range f.Devices {
+		if dev.EncryptionPassword != "" {
+			devices = append(devices, dev)
+		}
+	}
+	return devices
+}
+
 func (f *FolderConfiguration) prepare(myID protocol.DeviceID, existingDevices map[protocol.DeviceID]*DeviceConfiguration) {
 	// Ensure that
 	// - any loose devices are not present in the wrong places
@@ -322,6 +439,21 @@ func (f *FolderConfiguration) prepare(myID protocol.DeviceID, existingDevices ma
 
 	if f.Type == FolderTypeReceiveEncrypted {
 		f.IgnorePerms = true
+	}
+
+	if f.EncryptionPasswordRotation != nil {
+		// Keep the rotation bookkeeping consistent with the devices the
+		// folder is currently encrypted for. A rotation without any such
+		// devices is meaningless and gets dropped.
+		valid := make(map[protocol.DeviceID]struct{})
+		for _, dev := range f.EncryptionPasswordDevices() {
+			valid[dev.DeviceID] = struct{}{}
+		}
+		if len(valid) == 0 {
+			f.EncryptionPasswordRotation = nil
+		} else {
+			f.EncryptionPasswordRotation.PruneDevices(valid)
+		}
 	}
 }
 

@@ -98,6 +98,12 @@ func fillNil(data any, skipDeprecated bool) {
 			continue
 		}
 
+		// Fields explicitly marked as not having a default are left alone,
+		// even when they are nil pointers.
+		if t.Field(i).Tag.Get("nodefault") == "true" {
+			continue
+		}
+
 		f := s.Field(i)
 
 		for f.Kind() == reflect.Pointer && f.IsZero() && f.CanSet() {

@@ -477,6 +477,17 @@ The \fBencryptionPassword\fP sub\-element contains the secret needed to decrypt
 this folder’s data on the remote device.  If left empty, the data is plainly
 accessible (but still protected by the transport encryption).  The mechanism
 and how to set it up is described in a \fI\%separate chapter\fP\&.
+.sp
+The optional \fBencryptionPasswordRotation\fP sub\-element represents an
+in\-progress rolling rotation of that password.  It contains a
+\fBnewPassword\fP (the password being rotated to), a \fBstartedAt\fP timestamp
+and two device lists, \fBrotatedDevices\fP and \fBoldDevices\fP, recording which
+remote devices have authenticated with a token derived from the new respectively
+the current password since the rotation started.  While present, both
+passwords are accepted on incoming connections; completing the rotation
+replaces the current password and removes the element, while cancelling it
+discards the new password.  The element is managed automatically and should
+not normally be edited manually.
 .UNINDENT
 .INDENT 0.0
 .TP

@@ -102,9 +102,8 @@ type Model struct {
 	}
 	ConnectionStatsStub        func() map[string]interface{}
 	connectionStatsMutex       sync.RWMutex
-	connectionStatsArgsForCall []struct {
-	}
-	connectionStatsReturns struct {
+	connectionStatsArgsForCall []struct{}
+	connectionStatsReturns     struct {
 		result1 map[string]interface{}
 	}
 	connectionStatsReturnsOnCall map[int]struct {
@@ -165,9 +164,8 @@ type Model struct {
 	}
 	DeviceStatisticsStub        func() (map[protocol.DeviceID]stats.DeviceStatistics, error)
 	deviceStatisticsMutex       sync.RWMutex
-	deviceStatisticsArgsForCall []struct {
-	}
-	deviceStatisticsReturns struct {
+	deviceStatisticsArgsForCall []struct{}
+	deviceStatisticsReturns     struct {
 		result1 map[protocol.DeviceID]stats.DeviceStatistics
 		result2 error
 	}
@@ -196,6 +194,62 @@ type Model struct {
 		result1 error
 	}
 	dismissPendingFolderReturnsOnCall map[int]struct {
+		result1 error
+	}
+	CancelEncryptionPasswordRotationStub        func(string) error
+	cancelEncryptionPasswordRotationMutex       sync.RWMutex
+	cancelEncryptionPasswordRotationArgsForCall []struct {
+		arg1 string
+	}
+	cancelEncryptionPasswordRotationReturns struct {
+		result1 error
+	}
+	cancelEncryptionPasswordRotationReturnsOnCall map[int]struct {
+		result1 error
+	}
+	CompleteEncryptionPasswordRotationStub        func(string) error
+	completeEncryptionPasswordRotationMutex       sync.RWMutex
+	completeEncryptionPasswordRotationArgsForCall []struct {
+		arg1 string
+	}
+	completeEncryptionPasswordRotationReturns struct {
+		result1 error
+	}
+	completeEncryptionPasswordRotationReturnsOnCall map[int]struct {
+		result1 error
+	}
+	EncryptionPasswordRotationStatusStub        func(string) (model.EncryptionPasswordRotationStatus, error)
+	encryptionPasswordRotationStatusMutex       sync.RWMutex
+	encryptionPasswordRotationStatusArgsForCall []struct {
+		arg1 string
+	}
+	encryptionPasswordRotationStatusReturns struct {
+		result1 model.EncryptionPasswordRotationStatus
+		result2 error
+	}
+	encryptionPasswordRotationStatusReturnsOnCall map[int]struct {
+		result1 model.EncryptionPasswordRotationStatus
+		result2 error
+	}
+	EncryptionPasswordRotationStatusesStub        func() map[string]model.EncryptionPasswordRotationStatus
+	encryptionPasswordRotationStatusesMutex       sync.RWMutex
+	encryptionPasswordRotationStatusesArgsForCall []struct{}
+	encryptionPasswordRotationStatusesReturns     struct {
+		result1 map[string]model.EncryptionPasswordRotationStatus
+	}
+	encryptionPasswordRotationStatusesReturnsOnCall map[int]struct {
+		result1 map[string]model.EncryptionPasswordRotationStatus
+	}
+	StartEncryptionPasswordRotationStub        func(string, string) error
+	startEncryptionPasswordRotationMutex       sync.RWMutex
+	startEncryptionPasswordRotationArgsForCall []struct {
+		arg1 string
+		arg2 string
+	}
+	startEncryptionPasswordRotationReturns struct {
+		result1 error
+	}
+	startEncryptionPasswordRotationReturnsOnCall map[int]struct {
 		result1 error
 	}
 	DownloadProgressStub        func(protocol.Connection, *protocol.DownloadProgress) error
@@ -236,9 +290,8 @@ type Model struct {
 	}
 	FolderStatisticsStub        func() (map[string]stats.FolderStatistics, error)
 	folderStatisticsMutex       sync.RWMutex
-	folderStatisticsArgsForCall []struct {
-	}
-	folderStatisticsReturns struct {
+	folderStatisticsArgsForCall []struct{}
+	folderStatisticsReturns     struct {
 		result1 map[string]stats.FolderStatistics
 		result2 error
 	}
@@ -438,9 +491,8 @@ type Model struct {
 	}
 	PendingDevicesStub        func() (map[protocol.DeviceID]db.ObservedDevice, error)
 	pendingDevicesMutex       sync.RWMutex
-	pendingDevicesArgsForCall []struct {
-	}
-	pendingDevicesReturns struct {
+	pendingDevicesArgsForCall []struct{}
+	pendingDevicesReturns     struct {
 		result1 map[protocol.DeviceID]db.ObservedDevice
 		result2 error
 	}
@@ -593,9 +645,8 @@ type Model struct {
 	}
 	ScanFoldersStub        func() map[string]error
 	scanFoldersMutex       sync.RWMutex
-	scanFoldersArgsForCall []struct {
-	}
-	scanFoldersReturns struct {
+	scanFoldersArgsForCall []struct{}
+	scanFoldersReturns     struct {
 		result1 map[string]error
 	}
 	scanFoldersReturnsOnCall map[int]struct {
@@ -1095,8 +1146,7 @@ func (fake *Model) ConnectedToReturnsOnCall(i int, result1 bool) {
 func (fake *Model) ConnectionStats() map[string]interface{} {
 	fake.connectionStatsMutex.Lock()
 	ret, specificReturn := fake.connectionStatsReturnsOnCall[len(fake.connectionStatsArgsForCall)]
-	fake.connectionStatsArgsForCall = append(fake.connectionStatsArgsForCall, struct {
-	}{})
+	fake.connectionStatsArgsForCall = append(fake.connectionStatsArgsForCall, struct{}{})
 	stub := fake.ConnectionStatsStub
 	fakeReturns := fake.connectionStatsReturns
 	fake.recordInvocation("ConnectionStats", []interface{}{})
@@ -1384,8 +1434,7 @@ func (fake *Model) DelayScanArgsForCall(i int) (string, time.Duration) {
 func (fake *Model) DeviceStatistics() (map[protocol.DeviceID]stats.DeviceStatistics, error) {
 	fake.deviceStatisticsMutex.Lock()
 	ret, specificReturn := fake.deviceStatisticsReturnsOnCall[len(fake.deviceStatisticsArgsForCall)]
-	fake.deviceStatisticsArgsForCall = append(fake.deviceStatisticsArgsForCall, struct {
-	}{})
+	fake.deviceStatisticsArgsForCall = append(fake.deviceStatisticsArgsForCall, struct{}{})
 	stub := fake.DeviceStatisticsStub
 	fakeReturns := fake.deviceStatisticsReturns
 	fake.recordInvocation("DeviceStatistics", []interface{}{})
@@ -1750,8 +1799,7 @@ func (fake *Model) FolderProgressBytesCompletedReturnsOnCall(i int, result1 int6
 func (fake *Model) FolderStatistics() (map[string]stats.FolderStatistics, error) {
 	fake.folderStatisticsMutex.Lock()
 	ret, specificReturn := fake.folderStatisticsReturnsOnCall[len(fake.folderStatisticsArgsForCall)]
-	fake.folderStatisticsArgsForCall = append(fake.folderStatisticsArgsForCall, struct {
-	}{})
+	fake.folderStatisticsArgsForCall = append(fake.folderStatisticsArgsForCall, struct{}{})
 	stub := fake.FolderStatisticsStub
 	fakeReturns := fake.folderStatisticsReturns
 	fake.recordInvocation("FolderStatistics", []interface{}{})
@@ -2686,8 +2734,7 @@ func (fake *Model) OverrideArgsForCall(i int) string {
 func (fake *Model) PendingDevices() (map[protocol.DeviceID]db.ObservedDevice, error) {
 	fake.pendingDevicesMutex.Lock()
 	ret, specificReturn := fake.pendingDevicesReturnsOnCall[len(fake.pendingDevicesArgsForCall)]
-	fake.pendingDevicesArgsForCall = append(fake.pendingDevicesArgsForCall, struct {
-	}{})
+	fake.pendingDevicesArgsForCall = append(fake.pendingDevicesArgsForCall, struct{}{})
 	stub := fake.PendingDevicesStub
 	fakeReturns := fake.pendingDevicesReturns
 	fake.recordInvocation("PendingDevices", []interface{}{})
@@ -3429,8 +3476,7 @@ func (fake *Model) ScanFolderSubdirsReturnsOnCall(i int, result1 error) {
 func (fake *Model) ScanFolders() map[string]error {
 	fake.scanFoldersMutex.Lock()
 	ret, specificReturn := fake.scanFoldersReturnsOnCall[len(fake.scanFoldersArgsForCall)]
-	fake.scanFoldersArgsForCall = append(fake.scanFoldersArgsForCall, struct {
-	}{})
+	fake.scanFoldersArgsForCall = append(fake.scanFoldersArgsForCall, struct{}{})
 	stub := fake.ScanFoldersStub
 	fakeReturns := fake.scanFoldersReturns
 	fake.recordInvocation("ScanFolders", []interface{}{})
@@ -3854,6 +3900,303 @@ func (fake *Model) recordInvocation(key string, args []interface{}) {
 		fake.invocations[key] = [][]interface{}{}
 	}
 	fake.invocations[key] = append(fake.invocations[key], args)
+}
+
+func (fake *Model) CancelEncryptionPasswordRotation(arg1 string) error {
+	fake.cancelEncryptionPasswordRotationMutex.Lock()
+	ret, specificReturn := fake.cancelEncryptionPasswordRotationReturnsOnCall[len(fake.cancelEncryptionPasswordRotationArgsForCall)]
+	fake.cancelEncryptionPasswordRotationArgsForCall = append(fake.cancelEncryptionPasswordRotationArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.CancelEncryptionPasswordRotationStub
+	fakeReturns := fake.cancelEncryptionPasswordRotationReturns
+	fake.recordInvocation("CancelEncryptionPasswordRotation", []interface{}{arg1})
+	fake.cancelEncryptionPasswordRotationMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *Model) CancelEncryptionPasswordRotationCallCount() int {
+	fake.cancelEncryptionPasswordRotationMutex.RLock()
+	defer fake.cancelEncryptionPasswordRotationMutex.RUnlock()
+	return len(fake.cancelEncryptionPasswordRotationArgsForCall)
+}
+
+func (fake *Model) CancelEncryptionPasswordRotationCalls(stub func(string) error) {
+	fake.cancelEncryptionPasswordRotationMutex.Lock()
+	defer fake.cancelEncryptionPasswordRotationMutex.Unlock()
+	fake.CancelEncryptionPasswordRotationStub = stub
+}
+
+func (fake *Model) CancelEncryptionPasswordRotationArgsForCall(i int) string {
+	fake.cancelEncryptionPasswordRotationMutex.RLock()
+	defer fake.cancelEncryptionPasswordRotationMutex.RUnlock()
+	return fake.cancelEncryptionPasswordRotationArgsForCall[i].arg1
+}
+
+func (fake *Model) CancelEncryptionPasswordRotationReturns(result1 error) {
+	fake.cancelEncryptionPasswordRotationMutex.Lock()
+	defer fake.cancelEncryptionPasswordRotationMutex.Unlock()
+	fake.CancelEncryptionPasswordRotationStub = nil
+	fake.cancelEncryptionPasswordRotationReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *Model) CancelEncryptionPasswordRotationReturnsOnCall(i int, result1 error) {
+	fake.cancelEncryptionPasswordRotationMutex.Lock()
+	defer fake.cancelEncryptionPasswordRotationMutex.Unlock()
+	fake.CancelEncryptionPasswordRotationStub = nil
+	if fake.cancelEncryptionPasswordRotationReturnsOnCall == nil {
+		fake.cancelEncryptionPasswordRotationReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.cancelEncryptionPasswordRotationReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *Model) CompleteEncryptionPasswordRotation(arg1 string) error {
+	fake.completeEncryptionPasswordRotationMutex.Lock()
+	ret, specificReturn := fake.completeEncryptionPasswordRotationReturnsOnCall[len(fake.completeEncryptionPasswordRotationArgsForCall)]
+	fake.completeEncryptionPasswordRotationArgsForCall = append(fake.completeEncryptionPasswordRotationArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.CompleteEncryptionPasswordRotationStub
+	fakeReturns := fake.completeEncryptionPasswordRotationReturns
+	fake.recordInvocation("CompleteEncryptionPasswordRotation", []interface{}{arg1})
+	fake.completeEncryptionPasswordRotationMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *Model) CompleteEncryptionPasswordRotationCallCount() int {
+	fake.completeEncryptionPasswordRotationMutex.RLock()
+	defer fake.completeEncryptionPasswordRotationMutex.RUnlock()
+	return len(fake.completeEncryptionPasswordRotationArgsForCall)
+}
+
+func (fake *Model) CompleteEncryptionPasswordRotationCalls(stub func(string) error) {
+	fake.completeEncryptionPasswordRotationMutex.Lock()
+	defer fake.completeEncryptionPasswordRotationMutex.Unlock()
+	fake.CompleteEncryptionPasswordRotationStub = stub
+}
+
+func (fake *Model) CompleteEncryptionPasswordRotationArgsForCall(i int) string {
+	fake.completeEncryptionPasswordRotationMutex.RLock()
+	defer fake.completeEncryptionPasswordRotationMutex.RUnlock()
+	return fake.completeEncryptionPasswordRotationArgsForCall[i].arg1
+}
+
+func (fake *Model) CompleteEncryptionPasswordRotationReturns(result1 error) {
+	fake.completeEncryptionPasswordRotationMutex.Lock()
+	defer fake.completeEncryptionPasswordRotationMutex.Unlock()
+	fake.CompleteEncryptionPasswordRotationStub = nil
+	fake.completeEncryptionPasswordRotationReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *Model) CompleteEncryptionPasswordRotationReturnsOnCall(i int, result1 error) {
+	fake.completeEncryptionPasswordRotationMutex.Lock()
+	defer fake.completeEncryptionPasswordRotationMutex.Unlock()
+	fake.CompleteEncryptionPasswordRotationStub = nil
+	if fake.completeEncryptionPasswordRotationReturnsOnCall == nil {
+		fake.completeEncryptionPasswordRotationReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.completeEncryptionPasswordRotationReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *Model) EncryptionPasswordRotationStatus(arg1 string) (model.EncryptionPasswordRotationStatus, error) {
+	fake.encryptionPasswordRotationStatusMutex.Lock()
+	ret, specificReturn := fake.encryptionPasswordRotationStatusReturnsOnCall[len(fake.encryptionPasswordRotationStatusArgsForCall)]
+	fake.encryptionPasswordRotationStatusArgsForCall = append(fake.encryptionPasswordRotationStatusArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.EncryptionPasswordRotationStatusStub
+	fakeReturns := fake.encryptionPasswordRotationStatusReturns
+	fake.recordInvocation("EncryptionPasswordRotationStatus", []interface{}{arg1})
+	fake.encryptionPasswordRotationStatusMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *Model) EncryptionPasswordRotationStatusCallCount() int {
+	fake.encryptionPasswordRotationStatusMutex.RLock()
+	defer fake.encryptionPasswordRotationStatusMutex.RUnlock()
+	return len(fake.encryptionPasswordRotationStatusArgsForCall)
+}
+
+func (fake *Model) EncryptionPasswordRotationStatusCalls(stub func(string) (model.EncryptionPasswordRotationStatus, error)) {
+	fake.encryptionPasswordRotationStatusMutex.Lock()
+	defer fake.encryptionPasswordRotationStatusMutex.Unlock()
+	fake.EncryptionPasswordRotationStatusStub = stub
+}
+
+func (fake *Model) EncryptionPasswordRotationStatusArgsForCall(i int) string {
+	fake.encryptionPasswordRotationStatusMutex.RLock()
+	defer fake.encryptionPasswordRotationStatusMutex.RUnlock()
+	return fake.encryptionPasswordRotationStatusArgsForCall[i].arg1
+}
+
+func (fake *Model) EncryptionPasswordRotationStatusReturns(result1 model.EncryptionPasswordRotationStatus, result2 error) {
+	fake.encryptionPasswordRotationStatusMutex.Lock()
+	defer fake.encryptionPasswordRotationStatusMutex.Unlock()
+	fake.EncryptionPasswordRotationStatusStub = nil
+	fake.encryptionPasswordRotationStatusReturns = struct {
+		result1 model.EncryptionPasswordRotationStatus
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *Model) EncryptionPasswordRotationStatusReturnsOnCall(i int, result1 model.EncryptionPasswordRotationStatus, result2 error) {
+	fake.encryptionPasswordRotationStatusMutex.Lock()
+	defer fake.encryptionPasswordRotationStatusMutex.Unlock()
+	fake.EncryptionPasswordRotationStatusStub = nil
+	if fake.encryptionPasswordRotationStatusReturnsOnCall == nil {
+		fake.encryptionPasswordRotationStatusReturnsOnCall = make(map[int]struct {
+			result1 model.EncryptionPasswordRotationStatus
+			result2 error
+		})
+	}
+	fake.encryptionPasswordRotationStatusReturnsOnCall[i] = struct {
+		result1 model.EncryptionPasswordRotationStatus
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *Model) EncryptionPasswordRotationStatuses() map[string]model.EncryptionPasswordRotationStatus {
+	fake.encryptionPasswordRotationStatusesMutex.Lock()
+	ret, specificReturn := fake.encryptionPasswordRotationStatusesReturnsOnCall[len(fake.encryptionPasswordRotationStatusesArgsForCall)]
+	fake.encryptionPasswordRotationStatusesArgsForCall = append(fake.encryptionPasswordRotationStatusesArgsForCall, struct{}{})
+	stub := fake.EncryptionPasswordRotationStatusesStub
+	fakeReturns := fake.encryptionPasswordRotationStatusesReturns
+	fake.recordInvocation("EncryptionPasswordRotationStatuses", []interface{}{})
+	fake.encryptionPasswordRotationStatusesMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *Model) EncryptionPasswordRotationStatusesCallCount() int {
+	fake.encryptionPasswordRotationStatusesMutex.RLock()
+	defer fake.encryptionPasswordRotationStatusesMutex.RUnlock()
+	return len(fake.encryptionPasswordRotationStatusesArgsForCall)
+}
+
+func (fake *Model) EncryptionPasswordRotationStatusesCalls(stub func() map[string]model.EncryptionPasswordRotationStatus) {
+	fake.encryptionPasswordRotationStatusesMutex.Lock()
+	defer fake.encryptionPasswordRotationStatusesMutex.Unlock()
+	fake.EncryptionPasswordRotationStatusesStub = stub
+}
+
+func (fake *Model) EncryptionPasswordRotationStatusesReturns(result1 map[string]model.EncryptionPasswordRotationStatus) {
+	fake.encryptionPasswordRotationStatusesMutex.Lock()
+	defer fake.encryptionPasswordRotationStatusesMutex.Unlock()
+	fake.EncryptionPasswordRotationStatusesStub = nil
+	fake.encryptionPasswordRotationStatusesReturns = struct {
+		result1 map[string]model.EncryptionPasswordRotationStatus
+	}{result1}
+}
+
+func (fake *Model) EncryptionPasswordRotationStatusesReturnsOnCall(i int, result1 map[string]model.EncryptionPasswordRotationStatus) {
+	fake.encryptionPasswordRotationStatusesMutex.Lock()
+	defer fake.encryptionPasswordRotationStatusesMutex.Unlock()
+	fake.EncryptionPasswordRotationStatusesStub = nil
+	if fake.encryptionPasswordRotationStatusesReturnsOnCall == nil {
+		fake.encryptionPasswordRotationStatusesReturnsOnCall = make(map[int]struct {
+			result1 map[string]model.EncryptionPasswordRotationStatus
+		})
+	}
+	fake.encryptionPasswordRotationStatusesReturnsOnCall[i] = struct {
+		result1 map[string]model.EncryptionPasswordRotationStatus
+	}{result1}
+}
+
+func (fake *Model) StartEncryptionPasswordRotation(arg1 string, arg2 string) error {
+	fake.startEncryptionPasswordRotationMutex.Lock()
+	ret, specificReturn := fake.startEncryptionPasswordRotationReturnsOnCall[len(fake.startEncryptionPasswordRotationArgsForCall)]
+	fake.startEncryptionPasswordRotationArgsForCall = append(fake.startEncryptionPasswordRotationArgsForCall, struct {
+		arg1 string
+		arg2 string
+	}{arg1, arg2})
+	stub := fake.StartEncryptionPasswordRotationStub
+	fakeReturns := fake.startEncryptionPasswordRotationReturns
+	fake.recordInvocation("StartEncryptionPasswordRotation", []interface{}{arg1, arg2})
+	fake.startEncryptionPasswordRotationMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *Model) StartEncryptionPasswordRotationCallCount() int {
+	fake.startEncryptionPasswordRotationMutex.RLock()
+	defer fake.startEncryptionPasswordRotationMutex.RUnlock()
+	return len(fake.startEncryptionPasswordRotationArgsForCall)
+}
+
+func (fake *Model) StartEncryptionPasswordRotationCalls(stub func(string, string) error) {
+	fake.startEncryptionPasswordRotationMutex.Lock()
+	defer fake.startEncryptionPasswordRotationMutex.Unlock()
+	fake.StartEncryptionPasswordRotationStub = stub
+}
+
+func (fake *Model) StartEncryptionPasswordRotationArgsForCall(i int) (string, string) {
+	fake.startEncryptionPasswordRotationMutex.RLock()
+	defer fake.startEncryptionPasswordRotationMutex.RUnlock()
+	argsForCall := fake.startEncryptionPasswordRotationArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *Model) StartEncryptionPasswordRotationReturns(result1 error) {
+	fake.startEncryptionPasswordRotationMutex.Lock()
+	defer fake.startEncryptionPasswordRotationMutex.Unlock()
+	fake.StartEncryptionPasswordRotationStub = nil
+	fake.startEncryptionPasswordRotationReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *Model) StartEncryptionPasswordRotationReturnsOnCall(i int, result1 error) {
+	fake.startEncryptionPasswordRotationMutex.Lock()
+	defer fake.startEncryptionPasswordRotationMutex.Unlock()
+	fake.StartEncryptionPasswordRotationStub = nil
+	if fake.startEncryptionPasswordRotationReturnsOnCall == nil {
+		fake.startEncryptionPasswordRotationReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.startEncryptionPasswordRotationReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 var _ model.Model = new(Model)

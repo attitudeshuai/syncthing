@@ -1111,6 +1111,49 @@ curl \-X POST \-H X\-API\-key:... http://127.0.0.1:8384/rest/folder/versions?fol
 .EE
 .UNINDENT
 .UNINDENT
+.SS GET /rest/folder/encryptionrotation
+.sp
+Takes the optional parameter \fBfolder\fP.  With it, the current encryption
+password rotation state of that folder is returned; without it, the states of
+all folders shared encrypted are returned.  A state object contains the
+\fBfolderID\fP, whether a rotation \fBactive\fP, its \fBstartedAt\fP timestamp
+and a per\-device list where each device state is \fBnew\fP (has connected with
+the pending password), \fBold\fP (still using the current password) or
+\fBunseen\fP (has not connected since the rotation started).
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+{
+  \(dqfolderID\(dq: \(dqdefault\(dq,
+  \(dqactive\(dq: true,
+  \(dqstartedAt\(dq: \(dq2026\-01\-02T03:04:05Z\(dq,
+  \(dqdevices\(dq: [
+    { \(dqdeviceID\(dq: \(dqGYRZZQB\-...\(dq, \(dqstate\(dq: \(dqnew\(dq },
+    { \(dqdeviceID\(dq: \(dqAIR6LPZ\-...\(dq, \(dqstate\(dq: \(dqold\(dq } }
+  ]
+}
+.EE
+.UNINDENT
+.UNINDENT
+.SS POST /rest/folder/encryptionrotation/start
+.sp
+Declares a new encryption password for the folder given by the mandatory
+\fBfolder\fP parameter and enters the rotation transition period.  The new
+password is given by the \fBpassword\fP parameter.  Parameters may be passed as
+query parameters or in a JSON body.  Fails if a rotation is already in
+progress or the new password is empty or equal to the current one.
+.SS POST /rest/folder/encryptionrotation/complete
+.sp
+Completes the rotation of the folder given by the mandatory \fBfolder\fP
+parameter: the pending password becomes the current one and the old password
+stops being accepted.  Fails with status 409 unless every paired device has
+connected at least once with the new password.
+.SS POST /rest/folder/encryptionrotation/cancel
+.sp
+Cancels the in\-progress rotation of the folder given by the mandatory
+\fBfolder\fP parameter, discarding the pending password.  Only the current
+password remains accepted afterwards.
 .SH DATABASE ENDPOINTS
 .SS GET /rest/db/browse
 .sp

@@ -30,6 +30,9 @@ func getRedactedConfig(s *service) config.Configuration {
 				rawConf.Folders[folderIdx].Devices[deviceIdx].EncryptionPassword = "REDACTED"
 			}
 		}
+		if folderCfg.EncryptionPasswordRotation != nil && folderCfg.EncryptionPasswordRotation.NewPassword != "" {
+			rawConf.Folders[folderIdx].EncryptionPasswordRotation.NewPassword = "REDACTED"
+		}
 	}
 
 	return rawConf

@@ -58,6 +58,9 @@ const (
 	LoginAttempt
 	Failure
 	UpgradeRestartScheduled
+	EncryptionPasswordRotationStarted
+	EncryptionPasswordRotationCompleted
+	EncryptionPasswordRotationCancelled
 
 	AllEvents = (1 << iota) - 1
 )
@@ -137,6 +140,12 @@ func (t EventType) String() string {
 		return "Failure"
 	case UpgradeRestartScheduled:
 		return "UpgradeRestartScheduled"
+	case EncryptionPasswordRotationStarted:
+		return "EncryptionPasswordRotationStarted"
+	case EncryptionPasswordRotationCompleted:
+		return "EncryptionPasswordRotationCompleted"
+	case EncryptionPasswordRotationCancelled:
+		return "EncryptionPasswordRotationCancelled"
 	default:
 		return "Unknown"
 	}
@@ -226,6 +235,12 @@ func UnmarshalEventType(s string) EventType {
 		return Failure
 	case "UpgradeRestartScheduled":
 		return UpgradeRestartScheduled
+	case "EncryptionPasswordRotationStarted":
+		return EncryptionPasswordRotationStarted
+	case "EncryptionPasswordRotationCompleted":
+		return EncryptionPasswordRotationCompleted
+	case "EncryptionPasswordRotationCancelled":
+		return EncryptionPasswordRotationCancelled
 	default:
 		return 0
 	}
