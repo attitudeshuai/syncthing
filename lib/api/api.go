@@ -93,6 +93,7 @@ type service struct {
 	listenerAddr         net.Addr
 	exitChan             chan *svcutil.FatalErr
 	miscDB               *db.Typed
+	maintenance          db.MaintenanceService
 	shutdownTimeout      time.Duration
 
 	guiErrors slogutil.Recorder
@@ -107,7 +108,7 @@ type Service interface {
 	WaitForStart() error
 }
 
-func New(id protocol.DeviceID, cfg config.Wrapper, assetDir, tlsDefaultCommonName string, m model.Model, defaultSub, diskSub events.BufferedSubscription, evLogger events.Logger, discoverer discover.Manager, connectionsService connections.Service, urService *ur.Service, fss model.FolderSummaryService, errors, systemLog slogutil.Recorder, noUpgrade bool, miscDB *db.Typed) Service {
+func New(id protocol.DeviceID, cfg config.Wrapper, assetDir, tlsDefaultCommonName string, m model.Model, defaultSub, diskSub events.BufferedSubscription, evLogger events.Logger, discoverer discover.Manager, connectionsService connections.Service, urService *ur.Service, fss model.FolderSummaryService, errors, systemLog slogutil.Recorder, noUpgrade bool, miscDB *db.Typed, maintenance db.MaintenanceService) Service {
 	return &service{
 		id:      id,
 		cfg:     cfg,
@@ -130,6 +131,7 @@ func New(id protocol.DeviceID, cfg config.Wrapper, assetDir, tlsDefaultCommonNam
 		startedOnce:          make(chan struct{}),
 		exitChan:             make(chan *svcutil.FatalErr, 1),
 		miscDB:               miscDB,
+		maintenance:          maintenance,
 		shutdownTimeout:      100 * time.Millisecond,
 	}
 }
@@ -258,6 +260,7 @@ func (s *service) Serve(ctx context.Context) error {
 	restMux.HandlerFunc(http.MethodGet, "/rest/db/need", s.getDBNeed)                         // folder [perpage] [page]
 	restMux.HandlerFunc(http.MethodGet, "/rest/db/remoteneed", s.getDBRemoteNeed)             // device folder [perpage] [page]
 	restMux.HandlerFunc(http.MethodGet, "/rest/db/localchanged", s.getDBLocalChanged)         // folder [perpage] [page]
+	restMux.HandlerFunc(http.MethodGet, "/rest/db/maintenance", s.getDBMaintenanceStatus)     // -
 	restMux.HandlerFunc(http.MethodGet, "/rest/db/status", s.getDBStatus)                     // folder
 	restMux.HandlerFunc(http.MethodGet, "/rest/db/browse", s.getDBBrowse)                     // folder [prefix] [dirsonly] [levels]
 	restMux.HandlerFunc(http.MethodGet, "/rest/folder/versions", s.getFolderVersions)         // folder
@@ -291,6 +294,7 @@ func (s *service) Serve(ctx context.Context) error {
 	restMux.HandlerFunc(http.MethodPost, "/rest/db/override", s.postDBOverride)                  // folder
 	restMux.HandlerFunc(http.MethodPost, "/rest/db/revert", s.postDBRevert)                      // folder
 	restMux.HandlerFunc(http.MethodPost, "/rest/db/scan", s.postDBScan)                          // folder [sub...] [delay]
+	restMux.HandlerFunc(http.MethodPost, "/rest/db/maintenance", s.postDBMaintenance)            // -
 	restMux.HandlerFunc(http.MethodPost, "/rest/folder/versions", s.postFolderVersionsRestore)   // folder <body>
 	restMux.HandlerFunc(http.MethodPost, "/rest/system/error", s.postSystemError)                // <body>
 	restMux.HandlerFunc(http.MethodPost, "/rest/system/error/clear", s.postSystemErrorClear)     // -
@@ -798,6 +802,20 @@ func (s *service) getDBStatus(w http.ResponseWriter, r *http.Request) {
 	} else {
 		sendJSON(w, sum)
 	}
+}
+
+// getDBMaintenanceStatus returns the current database maintenance
+// status. It is read-only and always answers, even while maintenance is
+// running.
+func (s *service) getDBMaintenanceStatus(w http.ResponseWriter, _ *http.Request) {
+	sendJSON(w, s.maintenance.MaintenanceStatus())
+}
+
+// postDBMaintenance triggers a database maintenance run. If maintenance
+// is already running, no second run is started and the status of the
+// running maintenance is returned.
+func (s *service) postDBMaintenance(w http.ResponseWriter, _ *http.Request) {
+	sendJSON(w, s.maintenance.StartMaintenance())
 }
 
 func (s *service) postDBOverride(_ http.ResponseWriter, r *http.Request) {

@@ -11,19 +11,101 @@ import (
 	"time"
 
 	"github.com/syncthing/syncthing/lib/config"
+	"github.com/syncthing/syncthing/lib/events"
 	"github.com/syncthing/syncthing/lib/protocol"
 	"github.com/thejerf/suture/v4"
 )
 
+// MaintenanceTrigger indicates why a maintenance run was started.
+type MaintenanceTrigger string
+
+const (
+	// MaintenanceTriggerPeriodic is a maintenance run started by the
+	// periodic scheduler.
+	MaintenanceTriggerPeriodic MaintenanceTrigger = "periodic"
+	// MaintenanceTriggerManual is a maintenance run started on demand.
+	MaintenanceTriggerManual MaintenanceTrigger = "manual"
+)
+
+// MaintenancePhase describes what a running maintenance is currently
+// doing.
+type MaintenancePhase string
+
+const (
+	// MaintenancePhaseTidy is the database level analyze/checkpoint step.
+	MaintenancePhaseTidy MaintenancePhase = "tidy"
+	// MaintenancePhaseGarbageCollect is the per-folder garbage collection.
+	MaintenancePhaseGarbageCollect MaintenancePhase = "garbage-collect"
+)
+
+// MaintenanceProgress is the best-effort progress indication for a
+// running maintenance. All values are optional and only meaningful while
+// maintenance is running.
+type MaintenanceProgress struct {
+	// Phase is the currently executing maintenance phase.
+	Phase MaintenancePhase `json:"phase"`
+	// FoldersTotal is the total number of folders to maintain.
+	FoldersTotal int `json:"foldersTotal"`
+	// FoldersDone is the number of fully maintained folders so far.
+	FoldersDone int `json:"foldersDone"`
+	// Folder is the folder currently being maintained.
+	Folder string `json:"folder"`
+	// Table is the table currently being garbage collected, when
+	// applicable.
+	Table string `json:"table,omitempty"`
+	// ChunksTotal is the total number of garbage collection chunks for
+	// the current table, when applicable.
+	ChunksTotal int `json:"chunksTotal,omitempty"`
+	// ChunksDone is the number of garbage collection chunks processed so
+	// far for the current table, when applicable.
+	ChunksDone int `json:"chunksDone,omitempty"`
+}
+
+// MaintenanceStatus describes the current and previous state of database
+// maintenance. It is not persisted; it reflects the current process.
+type MaintenanceStatus struct {
+	// Running is true while a maintenance run is in progress.
+	Running bool `json:"running"`
+	// Trigger is why the currently running maintenance was started. It is
+	// empty when no maintenance is running.
+	Trigger MaintenanceTrigger `json:"trigger,omitempty"`
+	// Started is the time the currently running maintenance started. It
+	// is the zero time when no maintenance is running.
+	Started time.Time `json:"started"`
+	// LastCompleted is the time the most recent maintenance run
+	// completed, regardless of whether it succeeded. It is the zero time
+	// if no run has completed in this process.
+	LastCompleted time.Time `json:"lastCompleted"`
+	// LastError is the error from the most recent maintenance run, or
+	// null if the most recent run succeeded or no run has failed.
+	LastError *string `json:"lastError"`
+	// LastDuration is the duration of the most recent maintenance run.
+	LastDuration time.Duration `json:"lastDuration"`
+	// Progress is the progress of the currently running maintenance.
+	Progress MaintenanceProgress `json:"progress"`
+}
+
+// MaintenanceService provides on-demand control and read-only status of
+// database maintenance.
+type MaintenanceService interface {
+	// StartMaintenance triggers a maintenance run. If maintenance is
+	// already running it does nothing besides returning the status of
+	// the running maintenance; a second run is never started
+	// concurrently. The returned status reflects the state at the time
+	// of the call.
+	StartMaintenance() MaintenanceStatus
+
+	// MaintenanceStatus returns the current maintenance status.
+	MaintenanceStatus() MaintenanceStatus
+}
+
 type DBService interface {
 	suture.Service
-
-	// Starts maintenance asynchronously, if not already running
-	// Returns a channel that will receive the result when the requested maintenance finishes
-	StartMaintenance() <-chan error
+	MaintenanceService
 
 	// Returns the last time database maintenance completed
-	// This will return time zero when database maintenance has never completed successfully.
+	// successfully. This will return time zero when database maintenance
+	// has never completed successfully.
 	LastMaintenanceTime() time.Time
 }
 
@@ -46,7 +128,7 @@ func WithSkipBlockIndex() UpdateOption {
 type DB interface {
 	// Create a service that performs database maintenance periodically (no
 	// more often than the requested interval)
-	Service(maintenanceInterval time.Duration) DBService
+	Service(maintenanceInterval time.Duration, evLogger events.Logger) DBService
 
 	// Basics
 	Update(folder string, device protocol.DeviceID, fs []protocol.FileInfo, opts ...UpdateOption) error

@@ -23,6 +23,7 @@ import (
 	"github.com/syncthing/syncthing/internal/timeutil"
 	"github.com/syncthing/syncthing/lib/build"
 	"github.com/syncthing/syncthing/lib/config"
+	"github.com/syncthing/syncthing/lib/events"
 	"github.com/syncthing/syncthing/lib/protocol"
 )
 
@@ -1080,7 +1081,7 @@ func TestBlocklistGarbageCollection(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	svc := sdb.Service(time.Hour).(*Service)
+	svc := sdb.Service(time.Hour, events.NoopLogger).(*Service)
 
 	// Add three files
 

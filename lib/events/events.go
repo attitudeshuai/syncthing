@@ -58,6 +58,8 @@ const (
 	LoginAttempt
 	Failure
 	UpgradeRestartScheduled
+	DatabaseMaintenanceStarted
+	DatabaseMaintenanceFinished
 
 	AllEvents = (1 << iota) - 1
 )
@@ -137,6 +139,10 @@ func (t EventType) String() string {
 		return "Failure"
 	case UpgradeRestartScheduled:
 		return "UpgradeRestartScheduled"
+	case DatabaseMaintenanceStarted:
+		return "DatabaseMaintenanceStarted"
+	case DatabaseMaintenanceFinished:
+		return "DatabaseMaintenanceFinished"
 	default:
 		return "Unknown"
 	}
@@ -226,6 +232,10 @@ func UnmarshalEventType(s string) EventType {
 		return Failure
 	case "UpgradeRestartScheduled":
 		return UpgradeRestartScheduled
+	case "DatabaseMaintenanceStarted":
+		return DatabaseMaintenanceStarted
+	case "DatabaseMaintenanceFinished":
+		return DatabaseMaintenanceFinished
 	default:
 		return 0
 	}

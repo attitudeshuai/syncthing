@@ -90,7 +90,7 @@ func TestStopAfterBrokenConfig(t *testing.T) {
 		mdb.Close()
 	})
 	kdb := db.NewMiscDB(mdb)
-	srv := New(protocol.LocalDeviceID, w, "", "syncthing", nil, nil, nil, events.NoopLogger, nil, nil, nil, nil, nil, nil, false, kdb).(*service)
+	srv := New(protocol.LocalDeviceID, w, "", "syncthing", nil, nil, nil, events.NoopLogger, nil, nil, nil, nil, nil, nil, false, kdb, nil).(*service)
 
 	srv.started = make(chan string)
 
@@ -1039,7 +1039,8 @@ func startHTTPWithShutdownTimeout(t *testing.T, cfg config.Wrapper, shutdownTime
 		mdb.Close()
 	})
 	kdb := db.NewMiscDB(mdb)
-	svc := New(protocol.LocalDeviceID, cfg, assetDir, "syncthing", m, eventSub, diskEventSub, events.NoopLogger, discoverer, connections, urService, mockedSummary, errorLog, systemLog, false, kdb).(*service)
+	maintSvc := mdb.Service(0, events.NoopLogger)
+	svc := New(protocol.LocalDeviceID, cfg, assetDir, "syncthing", m, eventSub, diskEventSub, events.NoopLogger, discoverer, connections, urService, mockedSummary, errorLog, systemLog, false, kdb, maintSvc).(*service)
 	svc.started = addrChan
 
 	if shutdownTimeout > 0 {
@@ -1557,7 +1558,7 @@ func TestEventMasks(t *testing.T) {
 		mdb.Close()
 	})
 	kdb := db.NewMiscDB(mdb)
-	svc := New(protocol.LocalDeviceID, cfg, "", "syncthing", nil, defSub, diskSub, events.NoopLogger, nil, nil, nil, nil, nil, nil, false, kdb).(*service)
+	svc := New(protocol.LocalDeviceID, cfg, "", "syncthing", nil, defSub, diskSub, events.NoopLogger, nil, nil, nil, nil, nil, nil, false, kdb, nil).(*service)
 
 	if mask := svc.getEventMask(""); mask != DefaultEventMask {
 		t.Errorf("incorrect default mask %x != %x", int64(mask), int64(DefaultEventMask))
@@ -1581,6 +1582,130 @@ func TestEventMasks(t *testing.T) {
 	}
 	if res := svc.getEventSub(events.LocalIndexUpdated); res == nil || res == defSub || res == diskSub {
 		t.Errorf("should have returned a valid, non-default event sub")
+	}
+}
+
+// fakeMaintenanceService is a deterministic db.MaintenanceService for
+// API testing.
+type fakeMaintenanceService struct {
+	status db.MaintenanceStatus
+}
+
+func (s *fakeMaintenanceService) StartMaintenance() db.MaintenanceStatus {
+	s.status.Running = true
+	s.status.Trigger = db.MaintenanceTriggerManual
+	return s.status
+}
+
+func (s *fakeMaintenanceService) MaintenanceStatus() db.MaintenanceStatus {
+	return s.status
+}
+
+func startHTTPWithMaintenance(t *testing.T, cfg config.Wrapper, maintenance db.MaintenanceService) string {
+	t.Helper()
+
+	eventSub := new(eventmocks.BufferedSubscription)
+	diskEventSub := new(eventmocks.BufferedSubscription)
+	discoverer := new(discovermocks.Manager)
+	connections := new(connmocks.Service)
+	errorLog := slogutil.NewRecorder(0)
+	systemLog := slogutil.NewRecorder(0)
+	addrChan := make(chan string)
+
+	mdb, err := sqlite.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		mdb.Close()
+	})
+	kdb := db.NewMiscDB(mdb)
+	svc := New(protocol.LocalDeviceID, cfg, "../../gui", "syncthing", new(modelmocks.Model), eventSub, diskEventSub, events.NoopLogger, discoverer, connections, ur.New(cfg, new(modelmocks.Model), connections, false), &modelmocks.FolderSummaryService{}, errorLog, systemLog, false, kdb, maintenance).(*service)
+	svc.started = addrChan
+
+	supervisor := suture.New("API test", suture.Spec{PassThroughPanics: true})
+	supervisor.Add(svc)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	supervisor.ServeBackground(ctx)
+
+	addr := <-addrChan
+	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf("http://127.0.0.1:%d", tcpAddr.Port)
+}
+
+func TestDBMaintenanceAPI(t *testing.T) {
+	t.Parallel()
+
+	cfg := newMockedConfig()
+	cfg.GUIReturns(config.GUIConfiguration{
+		RawAddress: "127.0.0.1:0",
+		APIKey:     testAPIKey,
+	})
+
+	maint := &fakeMaintenanceService{status: db.MaintenanceStatus{
+		Progress: db.MaintenanceProgress{
+			Phase:        db.MaintenancePhaseGarbageCollect,
+			FoldersTotal: 2,
+			FoldersDone:  1,
+			Folder:       "default",
+			Table:        "blocks",
+			ChunksTotal:  5,
+			ChunksDone:   3,
+		},
+	}}
+	baseURL := startHTTPWithMaintenance(t, cfg, maint)
+
+	cli := &http.Client{Timeout: 5 * time.Second}
+	request := func(method string) db.MaintenanceStatus {
+		t.Helper()
+		req, err := http.NewRequest(method, baseURL+"/rest/db/maintenance", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("X-API-Key", testAPIKey)
+		resp, err := cli.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s /rest/db/maintenance: unexpected status %d", method, resp.StatusCode)
+		}
+		var st db.MaintenanceStatus
+		if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+
+	// The read-only status endpoint reports the current state without
+	// changing anything.
+	st := request(http.MethodGet)
+	if st.Running {
+		t.Fatalf("should be idle before trigger: %+v", st)
+	}
+	if st.Progress.Phase != db.MaintenancePhaseGarbageCollect ||
+		st.Progress.FoldersTotal != 2 || st.Progress.FoldersDone != 1 ||
+		st.Progress.Folder != "default" || st.Progress.Table != "blocks" ||
+		st.Progress.ChunksTotal != 5 || st.Progress.ChunksDone != 3 {
+		t.Fatalf("unexpected progress: %+v", st.Progress)
+	}
+
+	// The trigger endpoint returns the resulting status, which the fake
+	// reports as running.
+	st = request(http.MethodPost)
+	if !st.Running || st.Trigger != db.MaintenanceTriggerManual {
+		t.Fatalf("trigger should report running manual maintenance: %+v", st)
+	}
+
+	// The status endpoint now also shows the running state.
+	st = request(http.MethodGet)
+	if !st.Running || st.Trigger != db.MaintenanceTriggerManual {
+		t.Fatalf("status should show running maintenance: %+v", st)
 	}
 }
 

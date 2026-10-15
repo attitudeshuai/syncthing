@@ -115,9 +115,16 @@ func (a *App) Start() error {
 	return nil
 }
 
-// StartMaintenance asynchronously triggers database maintenance to start.
-func (a *App) StartMaintenance() <-chan error {
+// StartMaintenance asynchronously triggers database maintenance to
+// start. If maintenance is already running, the status of the running
+// maintenance is returned without starting another run.
+func (a *App) StartMaintenance() db.MaintenanceStatus {
 	return a.dbService.StartMaintenance()
+}
+
+// MaintenanceStatus returns the current status of database maintenance.
+func (a *App) MaintenanceStatus() db.MaintenanceStatus {
+	return a.dbService.MaintenanceStatus()
 }
 
 // LastMaintenanceTime returns the last time database maintenance completed successfully
@@ -129,7 +136,7 @@ func (a *App) LastMaintenanceTime() time.Time {
 func (a *App) startup() error {
 	a.mainService.Add(ur.NewFailureHandler(a.cfg, a.evLogger))
 
-	a.dbService = a.sdb.Service(a.opts.DBMaintenanceInterval)
+	a.dbService = a.sdb.Service(a.opts.DBMaintenanceInterval, a.evLogger)
 	a.mainService.Add(a.dbService)
 
 	if a.opts.AuditWriter != nil {
@@ -415,7 +422,7 @@ func (a *App) setupGUI(m model.Model, defaultSub, diskSub events.BufferedSubscri
 	summaryService := model.NewFolderSummaryService(a.cfg, m, a.myID, a.evLogger)
 	a.mainService.Add(summaryService)
 
-	apiSvc := api.New(a.myID, a.cfg, locations.Get(locations.GUIAssets), tlsDefaultCommonName, m, defaultSub, diskSub, a.evLogger, discoverer, connectionsService, urService, summaryService, errors, systemLog, a.opts.NoUpgrade, miscDB)
+	apiSvc := api.New(a.myID, a.cfg, locations.Get(locations.GUIAssets), tlsDefaultCommonName, m, defaultSub, diskSub, a.evLogger, discoverer, connectionsService, urService, summaryService, errors, systemLog, a.opts.NoUpgrade, miscDB, a.dbService)
 	a.mainService.Add(apiSvc)
 
 	if err := apiSvc.WaitForStart(); err != nil {

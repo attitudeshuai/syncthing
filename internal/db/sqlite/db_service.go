@@ -13,11 +13,13 @@ import (
 	"log/slog"
 	"math/rand"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/syncthing/syncthing/internal/db"
 	"github.com/syncthing/syncthing/internal/slogutil"
+	"github.com/syncthing/syncthing/lib/events"
 	"github.com/syncthing/syncthing/lib/protocol"
 )
 
@@ -31,37 +33,80 @@ const (
 	gcMaxRuntime = 5 * time.Minute // max time to spend on gc, per table, per run
 )
 
-func (s *DB) Service(maintenanceInterval time.Duration) db.DBService {
-	return newService(s, maintenanceInterval)
+func (s *DB) Service(maintenanceInterval time.Duration, evLogger events.Logger) db.DBService {
+	return newService(s, maintenanceInterval, evLogger)
 }
 
 type Service struct {
 	sdb                 *DB
 	maintenanceInterval time.Duration
 	internalMeta        *db.Typed
-	start               chan chan error
+	evLogger            events.Logger
+
+	// start is a capacity-one signal channel. Sending a token requests a
+	// maintenance run; a pending token is consumed by the next loop
+	// iteration. A send is skipped (non-blocking) when a run is already
+	// in progress, so concurrent triggers coalesce into the running run.
+	start chan struct{}
+
+	mut    sync.Mutex
+	status db.MaintenanceStatus
+
+	// onMaintenanceStart, if set, is called after the running state has
+	// been recorded and the started event emitted, but before any work
+	// is done. It exists for deterministic testing.
+	onMaintenanceStart func()
+
+	// run is the actual maintenance work. It defaults to periodic and
+	// exists for deterministic testing.
+	run func(ctx context.Context) error
 }
 
 func (s *Service) String() string {
 	return fmt.Sprintf("sqlite.service@%p", s)
 }
 
-func newService(sdb *DB, maintenanceInterval time.Duration) *Service {
-	return &Service{
+func newService(sdb *DB, maintenanceInterval time.Duration, evLogger events.Logger) *Service {
+	internalMeta := db.NewTyped(sdb, internalMetaPrefix)
+	lastMaint, _, _ := internalMeta.Time(lastMaintKey)
+	s := &Service{
 		sdb:                 sdb,
 		maintenanceInterval: maintenanceInterval,
-		internalMeta:        db.NewTyped(sdb, internalMetaPrefix),
-		start:               make(chan chan error),
+		internalMeta:        internalMeta,
+		evLogger:            evLogger,
+		start:               make(chan struct{}, 1),
+		status: db.MaintenanceStatus{
+			// Seed from the persisted last-success time so there is
+			// meaningful status before the first run of this process.
+			LastCompleted: lastMaint,
+		},
 	}
+	s.run = s.periodic
+	return s
 }
 
-func (s *Service) StartMaintenance() <-chan error {
-	finishChan := make(chan error, 1)
-	select {
-	case s.start <- finishChan:
-	default:
+// StartMaintenance requests an on-demand maintenance run. If one is
+// already running (or one has already been requested and hasn't started
+// yet), no additional run is scheduled and the current status is
+// returned.
+func (s *Service) StartMaintenance() db.MaintenanceStatus {
+	s.mut.Lock()
+	running := s.status.Running
+	s.mut.Unlock()
+
+	if !running {
+		select {
+		case s.start <- struct{}{}:
+		default:
+		}
 	}
-	return finishChan
+	return s.MaintenanceStatus()
+}
+
+func (s *Service) MaintenanceStatus() db.MaintenanceStatus {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+	return s.status
 }
 
 func (s *Service) Serve(ctx context.Context) error {
@@ -82,18 +127,19 @@ func (s *Service) Serve(ctx context.Context) error {
 	}
 
 	for {
-		var finishChan chan error
+		var trigger db.MaintenanceTrigger
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-timer.C:
-		case finishChan = <-s.start:
+			trigger = db.MaintenanceTriggerPeriodic
+		case <-s.start:
+			trigger = db.MaintenanceTriggerManual
 		}
 
-		err := s.periodic(ctx)
-		if finishChan != nil {
-			finishChan <- err
-		}
+		started := s.beginRun(trigger)
+		err := s.run(ctx)
+		s.finishRun(trigger, started, err, ctx.Err() != nil)
 
 		if err != nil {
 			return wrap(err)
@@ -113,6 +159,76 @@ func (s *Service) LastMaintenanceTime() time.Time {
 	return lastMaint
 }
 
+// beginRun marks maintenance as running and emits the started event. The
+// returned time is the start time of the run.
+func (s *Service) beginRun(trigger db.MaintenanceTrigger) time.Time {
+	started := time.Now()
+
+	s.mut.Lock()
+	s.status.Running = true
+	s.status.Trigger = trigger
+	s.status.Started = started
+	s.status.Progress = db.MaintenanceProgress{Phase: db.MaintenancePhaseTidy}
+	s.mut.Unlock()
+
+	s.evLogger.Log(events.DatabaseMaintenanceStarted, map[string]any{
+		"trigger": string(trigger),
+	})
+
+	if s.onMaintenanceStart != nil {
+		s.onMaintenanceStart()
+	}
+
+	return started
+}
+
+// finishRun records the result of a maintenance run and emits the
+// finished event. The finished event is not emitted on shutdown, when the
+// run was interrupted due to the context being canceled; the event
+// logger may be going away at the same time.
+func (s *Service) finishRun(trigger db.MaintenanceTrigger, started time.Time, err error, interrupted bool) {
+	finished := time.Now()
+
+	s.mut.Lock()
+	s.status.Running = false
+	s.status.Trigger = ""
+	s.status.Started = time.Time{}
+	s.status.LastCompleted = finished
+	s.status.LastDuration = finished.Sub(started)
+	s.status.LastError = events.Error(err)
+	s.status.Progress = db.MaintenanceProgress{}
+	s.mut.Unlock()
+
+	if interrupted {
+		slog.Debug("Maintenance run interrupted during shutdown", "trigger", string(trigger), slogutil.Error(err))
+		return
+	}
+
+	s.evLogger.Log(events.DatabaseMaintenanceFinished, map[string]any{
+		"trigger":  string(trigger),
+		"success":  err == nil,
+		"error":    events.Error(err),
+		"duration": finished.Sub(started).Seconds(),
+	})
+}
+
+func (s *Service) setProgress(p db.MaintenanceProgress) {
+	s.mut.Lock()
+	s.status.Progress = p
+	s.mut.Unlock()
+}
+
+// setChunkProgress updates the chunk level progress of the table
+// currently being garbage collected without touching the folder level
+// progress.
+func (s *Service) setChunkProgress(table string, chunksTotal, chunksDone int) {
+	s.mut.Lock()
+	s.status.Progress.Table = table
+	s.status.Progress.ChunksTotal = chunksTotal
+	s.status.Progress.ChunksDone = chunksDone
+	s.mut.Unlock()
+}
+
 func (s *Service) periodic(ctx context.Context) error {
 	t0 := time.Now()
 	slog.DebugContext(ctx, "Periodic start")
@@ -120,53 +236,100 @@ func (s *Service) periodic(ctx context.Context) error {
 	t1 := time.Now()
 	defer func() { slog.DebugContext(ctx, "Periodic done in", "t1", time.Since(t1), "t0t1", t1.Sub(t0)) }()
 
+	folders, err := s.sdb.ListFolders()
+	if err != nil {
+		return wrap(err)
+	}
+	foldersTotal := len(folders)
+	s.setProgress(db.MaintenanceProgress{Phase: db.MaintenancePhaseTidy, FoldersTotal: foldersTotal})
+
+	// Stop at a safe boundary when shutting down, before taking any
+	// locks.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	s.sdb.updateLock.Lock()
-	err := tidy(ctx, s.sdb.sql)
+	err = tidy(ctx, s.sdb.sql)
 	s.sdb.updateLock.Unlock()
 	if err != nil {
 		return err
 	}
 
+	foldersDone := 0
 	return wrap(s.sdb.forEachFolder(func(fdb *folderDB) error {
-		// Get the current device sequence, for comparison in the next step.
-		seq, err := fdb.GetDeviceSequence(protocol.LocalDeviceID)
-		if err != nil {
-			return wrap(err)
-		}
-		// Get the last successful GC sequence. If it's the same as the
-		// current sequence, nothing has changed and we can skip the GC
-		// entirely.
-		meta := db.NewTyped(fdb, internalMetaPrefix)
-		if prev, _, err := meta.Int64(lastSuccessfulGCSeqKey); err != nil {
-			return wrap(err)
-		} else if seq == prev {
-			slog.DebugContext(ctx, "Skipping unnecessary GC", "folder", fdb.folderID, "fdb", fdb.baseName)
-			return nil
+		// Stop between folders at a safe boundary when shutting down.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
 
-		// Run the GC steps, in a function to be able to use a deferred
-		// unlock.
-		if err := func() error {
-			fdb.updateLock.Lock()
-			defer fdb.updateLock.Unlock()
+		s.setProgress(db.MaintenanceProgress{
+			Phase:        db.MaintenancePhaseGarbageCollect,
+			FoldersTotal: foldersTotal,
+			FoldersDone:  foldersDone,
+			Folder:       fdb.folderID,
+		})
 
-			if err := garbageCollectOldDeletedLocked(ctx, fdb); err != nil {
-				return wrap(err)
-			}
-			if err := garbageCollectNamesAndVersions(ctx, fdb); err != nil {
-				return wrap(err)
-			}
-			if err := garbageCollectBlocklistsAndBlocksLocked(ctx, fdb); err != nil {
-				return wrap(err)
-			}
-			return tidy(ctx, fdb.sql)
-		}(); err != nil {
+		if err := s.garbageCollectFolder(ctx, fdb); err != nil {
 			return wrap(err)
 		}
 
-		// Update the successful GC sequence.
-		return wrap(meta.PutInt64(lastSuccessfulGCSeqKey, seq))
+		foldersDone++
+		s.setProgress(db.MaintenanceProgress{
+			Phase:        db.MaintenancePhaseGarbageCollect,
+			FoldersTotal: foldersTotal,
+			FoldersDone:  foldersDone,
+			Folder:       fdb.folderID,
+		})
+		return nil
 	}))
+}
+
+// garbageCollectFolder runs the garbage collection steps for a single
+// folder. It does not take the folder update lock itself.
+func (s *Service) garbageCollectFolder(ctx context.Context, fdb *folderDB) error {
+	// Get the current device sequence, for comparison in the next step.
+	seq, err := fdb.GetDeviceSequence(protocol.LocalDeviceID)
+	if err != nil {
+		return wrap(err)
+	}
+	// Get the last successful GC sequence. If it's the same as the
+	// current sequence, nothing has changed and we can skip the GC
+	// entirely.
+	meta := db.NewTyped(fdb, internalMetaPrefix)
+	if prev, _, err := meta.Int64(lastSuccessfulGCSeqKey); err != nil {
+		return wrap(err)
+	} else if seq == prev {
+		slog.DebugContext(ctx, "Skipping unnecessary GC", "folder", fdb.folderID, "fdb", fdb.baseName)
+		return nil
+	}
+
+	// Run the GC steps, in a function to be able to use a deferred
+	// unlock.
+	if err := func() error {
+		fdb.updateLock.Lock()
+		defer fdb.updateLock.Unlock()
+
+		if err := garbageCollectOldDeletedLocked(ctx, fdb); err != nil {
+			return wrap(err)
+		}
+		if err := garbageCollectNamesAndVersions(ctx, fdb); err != nil {
+			return wrap(err)
+		}
+		if err := garbageCollectBlocklistsAndBlocksLocked(ctx, fdb, s.setChunkProgress); err != nil {
+			return wrap(err)
+		}
+		return tidy(ctx, fdb.sql)
+	}(); err != nil {
+		return wrap(err)
+	}
+
+	// Update the successful GC sequence.
+	return wrap(meta.PutInt64(lastSuccessfulGCSeqKey, seq))
 }
 
 func tidy(ctx context.Context, db *sqlx.DB) error {
@@ -245,7 +408,7 @@ func garbageCollectOldDeletedLocked(ctx context.Context, fdb *folderDB) error {
 	return nil
 }
 
-func garbageCollectBlocklistsAndBlocksLocked(ctx context.Context, fdb *folderDB) error {
+func garbageCollectBlocklistsAndBlocksLocked(ctx context.Context, fdb *folderDB, onProgress func(table string, chunksTotal, chunksDone int)) error {
 	// Remove all blocklists not referred to by any files and, by extension,
 	// any blocks not referred to by a blocklist. This is an expensive
 	// operation when run normally, especially if there are a lot of blocks
@@ -285,12 +448,26 @@ func garbageCollectBlocklistsAndBlocksLocked(ctx context.Context, fdb *folderDB)
 
 		chunks := max(gcMinChunks, rows/gcChunkSize)
 		l := slog.With("folder", fdb.folderID, "fdb", fdb.baseName, "table", table, "rows", rows, "chunks", chunks)
+		if onProgress != nil {
+			onProgress(table, int(chunks), 0)
+		}
 
 		// Process rows in chunks up to a given time limit. We always use at
 		// least gcMinChunks chunks, then increase the number as the number of rows
 		// exceeds gcMinChunks*gcChunkSize.
 		t0 := time.Now()
 		for i, br := range randomBlobRanges(int(chunks)) {
+			// Stop at a chunk boundary when shutting down. The
+			// transaction is rolled back by the deferred call above, so
+			// no partial state is left behind; the GC sequence marker is
+			// only advanced after this function returns successfully.
+			select {
+			case <-ctx.Done():
+				l.InfoContext(ctx, "GC was interrupted at a chunk boundary", "processed", i)
+				return ctx.Err()
+			default:
+			}
+
 			if d := time.Since(t0); d > gcMaxRuntime {
 				l.InfoContext(ctx, "GC was interrupted due to exceeding time limit", "processed", i, "runtime", time.Since(t0))
 				break
@@ -319,6 +496,9 @@ func garbageCollectBlocklistsAndBlocksLocked(ctx context.Context, fdb *folderDB)
 					}
 					return slog.Int64("rows", rows)
 				}))
+			}
+			if onProgress != nil {
+				onProgress(table, int(chunks), i+1)
 			}
 		}
 	}
